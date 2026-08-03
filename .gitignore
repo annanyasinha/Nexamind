@@ -1,0 +1,27 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments & Virtual Environments
+.env
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Vector Store local persistent storage
+faiss_store/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE & OS Metadata
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.tmp

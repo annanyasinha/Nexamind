@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nexamind"
+version = "1.0.0"
+description = "NexaMind - High-performance RAG Intelligence Platform"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "langchain",
+    "langchain-core",
+    "langchain-community",
+    "langchain-google-genai",
+    "google-genai",
+    "faiss-cpu",
+    "sentence-transformers",
+    "pypdf",
+    "pymupdf",
+    "python-dotenv",
+    "fastapi",
+    "uvicorn",
+    "streamlit",
+    "python-multipart",
+    "pydantic",
+    "requests"
+]
+
+[project.scripts]
+rag-app = "app:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "black",
+    "ruff"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests"
+]
+pythonpath = [
+    "src"
+]

@@ -1,0 +1,2 @@
+[console_scripts]
+rag-app = app:main
