@@ -103,6 +103,3 @@ def test_agent_api_endpoint(mock_llm, mock_doc_rag, mock_doc_init):
     assert data["answer"] == "API agent response"
     assert len(data["steps"]) >= 1
     assert data["steps"][0]["tool"] == "document_rag"
-
-
-
