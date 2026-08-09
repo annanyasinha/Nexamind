@@ -6,6 +6,8 @@ from .embeddings import EmbeddingPipeline
 from .vectorstore import FaissVectorStore
 from .search_engine import RAGSearch
 from .session_manager import session_manager, SessionManager
+from .tools import DocumentRAGTool, YouTubeRAGTool, WebSearchTool
+from .agent import NexaMindAgent
 
 __all__ = [
     "load_all_documents",
@@ -13,5 +15,9 @@ __all__ = [
     "FaissVectorStore",
     "RAGSearch",
     "session_manager",
-    "SessionManager"
+    "SessionManager",
+    "DocumentRAGTool",
+    "YouTubeRAGTool",
+    "WebSearchTool",
+    "NexaMindAgent"
 ]

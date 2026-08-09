@@ -28,13 +28,13 @@ class Settings:
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     
     # Model Configurations
-    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "gemini-embedding-2-preview")
-    DEFAULT_LLM_MODEL: str = os.getenv("DEFAULT_LLM_MODEL", "gemma2-9b-it")
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
+    DEFAULT_LLM_MODEL: str = os.getenv("DEFAULT_LLM_MODEL", "gemini-2.0-flash")
     LLM_MODEL_CANDIDATES: list = [
-        "gemini-3-flash-preview",
-        "gemini-2.5-pro",
         "gemini-2.0-flash",
-        "gemini-flash-latest"
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-2.0-flash-lite"
     ]
     
     # Vectorstore & Chunking Parameters

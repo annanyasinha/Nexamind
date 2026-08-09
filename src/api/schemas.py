@@ -77,3 +77,27 @@ class YouTubeTranscriptResponse(BaseModel):
     saved_file: Optional[str] = None
     indexed_documents_count: int = 0
 
+
+class AgentQueryRequest(BaseModel):
+    query: str = Field(..., description="User query for NexaMind AI Agent", example="What is discussed in video J5_-l7WIO_w and what are the latest news on AI?")
+    session_id: Optional[str] = Field(default=None, description="Optional Session ID to automatically maintain chat history")
+    chat_history: Optional[List[dict]] = Field(default=[], description="Explicit chat history")
+    enabled_tools: Optional[List[str]] = Field(default=None, description="List of tools to enable: document_rag, youtube_rag, web_search")
+
+
+class ToolCallStep(BaseModel):
+    tool: str
+    input: str
+    output: str
+    execution_time_ms: float
+
+
+class AgentQueryResponse(BaseModel):
+    query: str
+    answer: str
+    session_id: Optional[str] = None
+    steps: List[ToolCallStep]
+    sources: List[Dict[str, Any]]
+    execution_time_ms: float
+
+

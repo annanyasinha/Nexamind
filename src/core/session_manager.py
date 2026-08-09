@@ -57,6 +57,31 @@ class SessionManager:
             return session["history"]
         return []
 
+    def add_message(
+        self, 
+        session_id: str, 
+        role: str, 
+        content: str, 
+        sources: Optional[List[Dict[str, Any]]] = None
+    ):
+        """Appends a single message turn (user or assistant) to the session history."""
+        session = self.get_session(session_id)
+        if not session:
+            session = self.create_session(session_id=session_id)
+            
+        entry = {
+            "role": role,
+            "content": content,
+            "sources": sources or []
+        }
+        if role == "assistant":
+            entry["summary"] = content
+        elif role == "user":
+            entry["query"] = content
+
+        session["history"].append(entry)
+        logger.info(f"Added {role} message to session '{session_id}'. Total turns: {len(session['history'])}")
+
     def add_message_pair(
         self, 
         session_id: str, 

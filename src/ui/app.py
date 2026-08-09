@@ -37,6 +37,7 @@ st.sidebar.markdown("### 📌 Navigation")
 nav_page = st.sidebar.radio(
     "Select View",
     options=[
+        "🤖 NexaMind AI Agent",
         "💬 Interactive RAG", 
         "📹 YouTube Q&A",
         "🔍 Vector Explorer", 
@@ -232,7 +233,131 @@ def stream_rag_tokens(user_query, top_k):
 
 
 # ================= MAIN CONTENT AREA (DYNAMIC VIEW) =================
-if nav_page == "💬 Interactive RAG":
+if nav_page == "🤖 NexaMind AI Agent":
+    st.subheader("🤖 NexaMind Autonomous AI Agent")
+    st.caption("Multi-Tool AI Agent that dynamically routes queries between Document RAG, YouTube RAG, and live Web Search.")
+
+
+    st.markdown("#### 🛠️ Enable Agent Tools")
+    t_c1, t_c2, t_c3 = st.columns(3)
+    with t_c1:
+        use_doc_rag = st.checkbox("📄 Document RAG Tool", value=True, help="Search indexed local PDFs/documents in FAISS store")
+    with t_c2:
+        use_yt_rag = st.checkbox("📹 YouTube RAG Tool", value=True, help="Search YouTube transcripts & audio text")
+    with t_c3:
+        use_web_search = st.checkbox("🌐 Web Search Tool", value=True, help="Perform real-time live DuckDuckGo web search")
+
+    enabled_tools = []
+    if use_doc_rag: enabled_tools.append("document_rag")
+    if use_yt_rag: enabled_tools.append("youtube_rag")
+    if use_web_search: enabled_tools.append("web_search")
+
+    st.markdown("<hr style='border-color:rgba(255,255,255,0.08)'>", unsafe_allow_html=True)
+
+    # Quick Suggestion Badges
+    st.markdown("**💡 Quick Agent Suggestions:**")
+    p1, p2, p3 = st.columns(3)
+    agent_preset = None
+    if p1.button("📑 Docs + Web: Compare resume skills with market trends"):
+        agent_preset = "What skills are mentioned in the uploaded documents and what are the current top in-demand skills on the web?"
+    if p2.button("📹 YouTube + Web: Summarize video J5_-l7WIO_w & search web"):
+        agent_preset = "Summarize the key points spoken in video J5_-l7WIO_w and search the web for related concepts."
+    if p3.button("🌐 Web Search: Latest developments in AI agents"):
+        agent_preset = "Search the web for the latest developments in AI agents and LLM tool calling."
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    if "agent_history" not in st.session_state or st.session_state.get("active_agent_session_id") != st.session_state.active_session_id:
+        st.session_state["active_agent_session_id"] = st.session_state.active_session_id
+        st.session_state["agent_history"] = []
+        hist = get_active_history()
+        for item in hist:
+            if "query" in item and "summary" in item:
+                st.session_state["agent_history"].append({"role": "user", "content": item["query"]})
+                st.session_state["agent_history"].append({"role": "assistant", "content": item["summary"], "sources": item.get("sources", [])})
+            elif "role" in item and "content" in item:
+                st.session_state["agent_history"].append({
+                    "role": item["role"],
+                    "content": item["content"],
+                    "sources": item.get("sources", []),
+                    "steps": item.get("steps", [])
+                })
+
+    # Display Agent Chat History
+    with st.container(height=420):
+        if not st.session_state["agent_history"]:
+            st.info("👋 Ask any complex multi-tool query! The NexaMind AI Agent will evaluate the request, select appropriate tools (Document RAG, YouTube RAG, Web Search), and synthesize an answer.")
+        else:
+            for msg in st.session_state["agent_history"]:
+                with st.chat_message(msg["role"], avatar=user_avatar if msg["role"] == "user" else ai_avatar):
+                    st.markdown(msg["content"])
+                    if msg.get("steps"):
+                        with st.expander(f"🧩 Agent Tool Calls ({len(msg['steps'])} tools executed in {msg.get('execution_time_ms', 0):.0f}ms)"):
+                            for idx, step in enumerate(msg["steps"]):
+                                t_icon = "📄" if step["tool"] == "document_rag" else ("📹" if step["tool"] == "youtube_rag" else "🌐")
+                                st.markdown(f"**Step #{idx+1} {t_icon} `{step['tool']}`** (Time: `{step['execution_time_ms']}ms`)")
+                                st.markdown(f"Input: `{step['input']}`")
+                                st.code(step["output"], language="markdown")
+
+    # Chat Input Box
+    agent_query_input = st.chat_input("Ask NexaMind Agent (Document RAG, YouTube RAG, Web Search)...")
+    final_agent_query = agent_preset or agent_query_input
+
+    if final_agent_query:
+        st.session_state["agent_history"].append({"role": "user", "content": final_agent_query})
+        with st.spinner("🤖 NexaMind Agent is reasoning and invoking tools..."):
+            success = False
+            try:
+                resp = requests.post(
+                    f"{api_base_url}/agent/query",
+                    json={
+                        "query": final_agent_query,
+                        "session_id": st.session_state.active_session_id,
+                        "enabled_tools": enabled_tools
+                    },
+                    timeout=45
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.session_state["agent_history"].append({
+                        "role": "assistant",
+                        "content": data["answer"],
+                        "steps": data.get("steps", []),
+                        "execution_time_ms": data.get("execution_time_ms", 0)
+                    })
+                    success = True
+                else:
+                    resp.raise_for_status()
+            except Exception as api_ex:
+                # Direct local fallback if REST API fails
+                try:
+                    from api.deps import get_nexamind_agent
+                    agent = get_nexamind_agent()
+                    history = get_active_history()
+                    res = agent.run(final_agent_query, chat_history=history, enabled_tools=enabled_tools)
+                    if st.session_state.active_session_id:
+                        session_manager.add_message(st.session_state.active_session_id, role="user", content=final_agent_query)
+                        session_manager.add_message(
+                            st.session_state.active_session_id, 
+                            role="assistant", 
+                            content=res["answer"], 
+                            sources=res.get("sources", [])
+                        )
+                    st.session_state["agent_history"].append({
+                        "role": "assistant",
+                        "content": res["answer"],
+                        "steps": res.get("steps", []),
+                        "execution_time_ms": res.get("execution_time_ms", 0)
+                    })
+                    success = True
+                except Exception as local_ex:
+                    st.error(f"Agent Execution Error: {str(local_ex)}")
+                    if st.session_state["agent_history"] and st.session_state["agent_history"][-1]["role"] == "user":
+                        st.session_state["agent_history"].pop()
+        st.rerun()
+
+
+elif nav_page == "💬 Interactive RAG":
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
         st.markdown(f'<div class="session-badge">⚡ Active Session: {st.session_state.active_session_id}</div>', unsafe_allow_html=True)
@@ -644,6 +769,7 @@ elif nav_page == "⚙️ System Dashboard":
         | Method | Endpoint | Description |
         | :---: | :--- | :--- |
         | <span class="http-get">GET</span> | `/health` | Live system health metrics & vector count |
+        | <span class="http-post">POST</span> | `/agent/query` | NexaMind Autonomous AI Agent query with multi-tool routing & traces |
         | <span class="http-post">POST</span> | `/query` | Session-aware RAG search & Gemini AI generation |
         | <span class="http-post">POST</span> | `/query/stream` | Real-time SSE token streaming RAG endpoint |
         | <span class="http-post">POST</span> | `/search` | Raw FAISS vector similarity search |
