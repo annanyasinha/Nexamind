@@ -112,7 +112,7 @@ GOOGLE_API_KEY=your_gemini_api_key_here
 
 - **Run Direct Query**:
   ```bash
-  python app.py --query "Where did Shubham study?"
+  python app.py --query "Where did Annanya study?"
   ```
 
 ---
