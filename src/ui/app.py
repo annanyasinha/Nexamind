@@ -38,6 +38,7 @@ nav_page = st.sidebar.radio(
     "Select View",
     options=[
         "💬 Interactive RAG", 
+        "📹 YouTube Q&A",
         "🔍 Vector Explorer", 
         "📁 Document Hub", 
         "⚙️ System Dashboard"
@@ -315,6 +316,157 @@ if nav_page == "💬 Interactive RAG":
             st.rerun()
 
 
+elif nav_page == "📹 YouTube Q&A":
+    st.subheader("📹 YouTube Video Transcript & Q&A")
+    st.caption("Extract YouTube transcripts with timestamps, view video content, and index into NexaMind vector store for AI Q&A.")
+
+    yt_col1, yt_col2 = st.columns([3, 1])
+    with yt_col1:
+        yt_url = st.text_input("Enter YouTube Video URL or Video ID:", placeholder="https://www.youtube.com/watch?v=jNQXAC9IVRw", key="yt_url_input")
+    with yt_col2:
+        auto_index_yt = st.checkbox("Auto-index into Vector Store", value=True, key="yt_auto_index")
+
+    col_btn1, col_btn2 = st.columns([1, 1])
+    with col_btn1:
+        fetch_btn = st.button("🚀 Fetch Transcript & Index", use_container_width=True, key="fetch_yt_btn")
+
+    if fetch_btn and yt_url.strip():
+        with st.spinner("Extracting transcript from YouTube..."):
+            try:
+                resp = requests.post(
+                    f"{api_base_url}/youtube/transcript",
+                    json={"url": yt_url.strip(), "save_to_dataset": True, "auto_reindex": auto_index_yt},
+                    timeout=25
+                )
+                if resp.status_code == 200:
+                    st.session_state["yt_data"] = resp.json()
+                    st.success(f"Transcript fetched successfully! ({st.session_state['yt_data']['segment_count']} segments)")
+                else:
+                    st.error(f"Failed to fetch transcript via API: {resp.text}")
+            except Exception:
+                # Direct local fallback
+                try:
+                    from core.youtube_loader import fetch_youtube_transcript, save_transcript_to_dataset
+                    yt_res = fetch_youtube_transcript(yt_url.strip())
+                    saved_f = save_transcript_to_dataset(yt_res, settings.DATA_DIR)
+                    if auto_index_yt:
+                        from api.deps import get_rag_search
+                        rag = get_rag_search()
+                        indexed_c = rag.rebuild_index(settings.DATA_DIR)
+                    else:
+                        indexed_c = 0
+                    yt_res["saved_file"] = saved_f.name
+                    yt_res["indexed_documents_count"] = indexed_c
+                    st.session_state["yt_data"] = yt_res
+                    st.success(f"Transcript fetched successfully! ({yt_res['segment_count']} segments)")
+                except Exception as ex:
+                    st.error(f"Error fetching YouTube transcript: {str(ex)}")
+
+    if "yt_data" in st.session_state and st.session_state["yt_data"]:
+        yt_data = st.session_state["yt_data"]
+        
+        st.markdown("<hr style='border-color:rgba(255,255,255,0.08)'>", unsafe_allow_html=True)
+        
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.markdown(f"""
+            <div class="glass-card">
+                <div class="glass-value">{yt_data['video_id']}</div>
+                <div class="glass-label">Video ID</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with m2:
+            st.markdown(f"""
+            <div class="glass-card">
+                <div class="glass-value">{yt_data['segment_count']}</div>
+                <div class="glass-label">Transcript Segments</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with m3:
+            sf_name = yt_data.get('saved_file', 'Indexed')
+            st.markdown(f"""
+            <div class="glass-card">
+                <div class="glass-value" style="color:#34d399; font-size:1.1rem;">{sf_name}</div>
+                <div class="glass-label">Dataset File Status</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        t_tab1, t_tab2, t_tab3 = st.tabs(["⏱️ Timestamped Transcript", "📝 Plain Text & Download", "⚡ Ask Video Questions"])
+        
+        with t_tab1:
+            st.video(yt_data["url"])
+            st.markdown("#### Timestamped Captions:")
+            with st.container(height=350):
+                for seg in yt_data.get("segments", []):
+                    st.markdown(f"**`[{seg['timestamp']}]`** {seg['text']}")
+                    
+        with t_tab2:
+            st.markdown("#### Complete Formatted Transcript:")
+            st.text_area("Transcript Content:", value=yt_data.get("full_text", ""), height=300, key="yt_full_text_area")
+            st.download_button(
+                label="📥 Download Transcript (.txt)",
+                data=yt_data.get("full_text", ""),
+                file_name=f"transcript_{yt_data['video_id']}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+            
+        with t_tab3:
+            st.markdown("#### 💬 Interactive Video Chat & Q&A")
+            st.caption("Ask any question specifically about this video transcript. The AI will answer based on the video content.")
+
+            if "yt_chat_history" not in st.session_state:
+                st.session_state["yt_chat_history"] = []
+
+            # Quick Suggestion Badges
+            st.markdown("**💡 Quick Suggestions:**")
+            p_col1, p_col2, p_col3, p_col4 = st.columns([1, 1, 1, 1])
+            selected_preset = None
+            if p_col1.button("🎯 Summarize Video", key="yt_btn_sum", use_container_width=True):
+                selected_preset = f"Summarize the main key points of YouTube video {yt_data['video_id']}."
+            if p_col2.button("🔑 Key Takeaways", key="yt_btn_takeaways", use_container_width=True):
+                selected_preset = f"What are the top 3-5 key takeaways from video {yt_data['video_id']}?"
+            if p_col3.button("🛠️ Methods & Steps", key="yt_btn_methods", use_container_width=True):
+                selected_preset = f"What processes, tools, or steps were discussed in video {yt_data['video_id']}?"
+            if p_col4.button("🗑️ Clear Chat", key="yt_btn_clear", use_container_width=True):
+                st.session_state["yt_chat_history"] = []
+                st.rerun()
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # Display Video Chat History
+            with st.container(height=380):
+                if not st.session_state["yt_chat_history"]:
+                    st.info("👋 Ask any question below or click a quick suggestion to start chatting about this video!")
+                else:
+                    for msg in st.session_state["yt_chat_history"]:
+                        with st.chat_message(msg["role"]):
+                            st.markdown(msg["content"])
+                            if msg.get("sources"):
+                                with st.expander(f"📚 Context Chunks Used ({len(msg['sources'])})"):
+                                    for idx, src in enumerate(msg["sources"]):
+                                        st.markdown(f"**Chunk #{idx+1}** | Distance: `{src.get('distance', 0.0):.4f}`")
+                                        st.code(src.get("text", ""), language="markdown")
+
+            # Chat Input Box
+            yt_user_query = st.chat_input("Ask a question about this video...", key="yt_tab_chat_input")
+            final_yt_query = selected_preset or yt_user_query
+
+            if final_yt_query:
+                st.session_state["yt_chat_history"].append({"role": "user", "content": final_yt_query})
+                with st.chat_message("assistant"):
+                    full_response = st.write_stream(stream_rag_tokens(final_yt_query, top_k=5))
+                    latest_srcs = st.session_state.get("latest_sources", [])
+                    st.session_state["yt_chat_history"].append({
+                        "role": "assistant",
+                        "content": full_response,
+                        "sources": latest_srcs
+                    })
+                st.rerun()
+
+
 elif nav_page == "🔍 Vector Explorer":
     st.subheader("🔍 Vector Similarity Explorer")
     st.caption("Inspect raw FAISS vector distance scores and extracted text chunks without LLM summarization.")
@@ -501,6 +653,7 @@ elif nav_page == "⚙️ System Dashboard":
         | <span class="http-get">GET</span> | `/documents` | List uploaded dataset files |
         | <span class="http-post">POST</span> | `/upload` | Upload & auto-reindex documents |
         | <span class="http-post">POST</span> | `/reindex` | Force rebuild FAISS index |
+        | <span class="http-post">POST</span> | `/youtube/transcript` | Extract YouTube transcript & optionally auto-index into FAISS vector store |
         | <span class="http-delete">DELETE</span> | `/documents/{filename}` | Delete single file & update vector index |
         | <span class="http-delete">DELETE</span> | `/documents` | Clear all dataset files & wipe vector store |
         """, unsafe_allow_html=True)

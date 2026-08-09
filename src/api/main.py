@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from api.deps import get_rag_search
-from api.routes import health_router, sessions_router, rag_router, documents_router
+from api.routes import health_router, sessions_router, rag_router, documents_router, youtube_router
 from utils.logger import logger
 
 app = FastAPI(
@@ -25,6 +25,7 @@ app.include_router(health_router)
 app.include_router(rag_router)
 app.include_router(sessions_router)
 app.include_router(documents_router)
+app.include_router(youtube_router)
 
 
 @app.on_event("startup")

@@ -5,11 +5,13 @@ __pycache__/
 
 # Environments & Virtual Environments
 .env
+env
 venv/
 env/
 ENV/
 env.bak/
 venv.bak/
+*.egg-info/
 
 # Vector Store local persistent storage
 faiss_store/

@@ -19,3 +19,4 @@ streamlit
 python-multipart
 pydantic
 requests
+youtube-transcript-api
