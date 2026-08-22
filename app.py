@@ -16,8 +16,10 @@ src_path = Path(__file__).resolve().parent / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-# Set PYTHONPATH environment variable for child processes (e.g. Streamlit runner)
+# Set PYTHONPATH and PATH environment variables for child processes
 os.environ["PYTHONPATH"] = str(src_path) + os.path.pathsep + os.environ.get("PYTHONPATH", "")
+if venv_python.exists():
+    os.environ["PATH"] = str(venv_python.parent) + os.path.pathsep + os.environ.get("PATH", "")
 
 from config import settings
 from core.search_engine import RAGSearch
@@ -45,7 +47,7 @@ def main():
         # Start frontend UI
         try:
             ui_script = src_path / "ui" / "app.py"
-            os.system(f"streamlit run {ui_script}")
+            subprocess.run([sys.executable, "-m", "streamlit", "run", str(ui_script)])
         finally:
             logger.info("Shutting down backend process...")
             backend_proc.terminate()
@@ -57,7 +59,7 @@ def main():
     elif args.frontend:
         logger.info("Launching Streamlit frontend dashboard ...")
         ui_script = src_path / "ui" / "app.py"
-        os.system(f"streamlit run {ui_script}")
+        subprocess.run([sys.executable, "-m", "streamlit", "run", str(ui_script)])
 
     elif args.query:
         logger.info(f"Executing CLI RAG query: '{args.query}'")
@@ -74,7 +76,7 @@ def main():
     else:
         logger.info("No flag specified. Running sample CLI query...")
         rag_search = RAGSearch()
-        query = "Where did shubham study?"
+        query = "Where did Annanya study?"
         res = rag_search.search_with_sources(query, top_k=3)
         print("\n[Query]:", query)
         print("[Summary]:", res["summary"])

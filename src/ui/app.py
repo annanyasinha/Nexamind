@@ -28,9 +28,8 @@ if "active_session_id" not in st.session_state:
 if "ui_theme" not in st.session_state:
     st.session_state.ui_theme = "dark"
 
-# ================= SIDEBAR CONFIGURATION & NAVIGATION =================
-st.sidebar.image("https://img.icons8.com/isometric/96/brain-laptop.png", width=70)
-st.sidebar.title("⚡ RAG Platform")
+st.sidebar.markdown('<div style="font-size:3.2rem; margin-bottom:-10px; margin-top:-15px;">🧠⚡</div>', unsafe_allow_html=True)
+st.sidebar.title("NexaMind RAG")
 
 # 1. Left Panel Main Navigation
 st.sidebar.markdown("### 📌 Navigation")
@@ -373,10 +372,10 @@ elif nav_page == "💬 Interactive RAG":
     st.markdown("**💡 Quick Question Suggestions:**")
     cols_btn = st.columns(3)
     preset_query = None
-    if cols_btn[0].button("🎓 Where did Shubham study?"):
-        preset_query = "Where did Shubham study?"
-    if cols_btn[1].button("💻 What are his key technical skills?"):
-        preset_query = "What are his key skills?"
+    if cols_btn[0].button("🎓 Where did Annanya study?"):
+        preset_query = "Where did Annanya study?"
+    if cols_btn[1].button("💻 What are key technical skills?"):
+        preset_query = "What are the key technical skills mentioned in the documents?"
     if cols_btn[2].button("📄 Summarize all loaded documents"):
         preset_query = "Summarize the key information in all available documents."
 

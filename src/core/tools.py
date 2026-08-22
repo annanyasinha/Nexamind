@@ -42,8 +42,11 @@ class DocumentRAGTool:
         meta_path = settings.FAISS_STORE_DIR / "metadata.pkl"
         if not (faiss_path.exists() and meta_path.exists()):
             logger.info("Initializing vector store from DATA_DIR for Document RAG Tool...")
-            docs = load_all_documents(settings.DATA_DIR)
-            self.vectorstore.build_from_documents(docs)
+            try:
+                docs = load_all_documents(settings.DATA_DIR)
+                self.vectorstore.build_from_documents(docs)
+            except Exception as e:
+                logger.warning(f"Failed to auto-build vector store for Document RAG Tool: {e}")
         else:
             self.vectorstore.load()
 

@@ -9,13 +9,13 @@ from utils.logger import logger
 
 def extract_youtube_id(url_or_id: str) -> str:
     """
-    Extracts 11-character YouTube video ID from various YouTube URL formats or raw ID string.
+    various YouTube URL formats/raw ID string
     Supported formats:
     - https://www.youtube.com/watch?v=VIDEO_ID
     - https://youtu.be/VIDEO_ID
     - https://www.youtube.com/embed/VIDEO_ID
     - https://www.youtube.com/shorts/VIDEO_ID
-    - Raw 11-character ID (e.g. jNQXAC9IVRw)
+    - Raw 11-character ID
     """
     if not url_or_id:
         raise ValueError("URL or Video ID cannot be empty.")

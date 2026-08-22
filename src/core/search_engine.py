@@ -35,8 +35,11 @@ class RAGSearch:
         meta_path = self.persist_dir / "metadata.pkl"
         if not (faiss_path.exists() and meta_path.exists()):
             logger.info("Vector store files not found. Initializing index from document dataset...")
-            docs = load_all_documents(settings.DATA_DIR)
-            self.vectorstore.build_from_documents(docs)
+            try:
+                docs = load_all_documents(settings.DATA_DIR)
+                self.vectorstore.build_from_documents(docs)
+            except Exception as e:
+                logger.warning(f"Failed to auto-build vector store index on initialization: {e}")
         else:
             self.vectorstore.load()
 
