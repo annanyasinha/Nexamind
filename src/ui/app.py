@@ -28,11 +28,11 @@ if "active_session_id" not in st.session_state:
 if "ui_theme" not in st.session_state:
     st.session_state.ui_theme = "dark"
 
-st.sidebar.markdown('<div style="font-size:3.2rem; margin-bottom:-10px; margin-top:-15px;">🧠⚡</div>', unsafe_allow_html=True)
+st.sidebar.markdown('<div style="font-size:3.2rem; margin-bottom:-10px; margin-top:-15px;">🧠</div>', unsafe_allow_html=True)
 st.sidebar.title("NexaMind RAG")
 
 # 1. Left Panel Main Navigation
-st.sidebar.markdown("### 📌 Navigation")
+st.sidebar.markdown("### Navigation")
 nav_page = st.sidebar.radio(
     "Select View",
     options=[
@@ -49,8 +49,11 @@ nav_page = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 
-default_api_url = f"http://{settings.HOST}:{settings.PORT}" if settings.HOST != "0.0.0.0" else f"http://localhost:{settings.PORT}"
 
+default_api_url = os.getenv(
+    "API_URL",
+    f"http://localhost:{settings.PORT}"
+).rstrip("/")
 # 2. Session Manager
 st.sidebar.subheader("📂 Session Manager")
 
