@@ -9,12 +9,13 @@ from pathlib import Path
 
 
 # ============================================================
-# PROJECT / VIRTUAL ENVIRONMENT SETUP
+# PATH CONFIGURATION
 # ============================================================
 
-# Automatically switch to project virtual environment
-# when running locally, if one exists.
-venv_python = Path(__file__).resolve().parent / "venv" / "bin" / "python"
+BASE_DIR = Path(__file__).resolve().parent
+
+# Virtual environment (for local development)
+venv_python = BASE_DIR / "venv" / "bin" / "python"
 
 if (
     venv_python.exists()
@@ -27,19 +28,14 @@ if (
     )
 
 
-# ============================================================
-# PYTHON PATH SETUP
-# ============================================================
-
-# Add src directory to Python path so imports such as
-# "from config import settings" work correctly.
-src_path = Path(__file__).resolve().parent / "src"
+# Add src directory to Python path
+src_path = BASE_DIR / "src"
 
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 
-# Set PYTHONPATH for child processes.
+# Set PYTHONPATH
 os.environ["PYTHONPATH"] = (
     str(src_path)
     + os.path.pathsep
@@ -47,7 +43,7 @@ os.environ["PYTHONPATH"] = (
 )
 
 
-# Add virtual environment binaries to PATH when available.
+# Add virtual environment to PATH locally
 if venv_python.exists():
     os.environ["PATH"] = (
         str(venv_python.parent)
@@ -57,7 +53,7 @@ if venv_python.exists():
 
 
 # ============================================================
-# NEXAMIND IMPORTS
+# PROJECT IMPORTS
 # ============================================================
 
 from config import settings
@@ -66,27 +62,212 @@ from utils.logger import logger
 
 
 # ============================================================
-# APPLICATION LAUNCHER
+# FASTAPI SERVER
+# ============================================================
+
+def start_backend():
+    """
+    Start the FastAPI backend.
+
+    Render automatically provides the PORT environment variable.
+    Locally, settings.PORT is used as the fallback.
+    """
+
+    import uvicorn
+
+    host = "0.0.0.0"
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            settings.PORT
+        )
+    )
+
+    logger.info(
+        f"Starting FastAPI backend on http://{host}:{port}"
+    )
+
+    uvicorn.run(
+        "api.main:app",
+        host=host,
+        port=port,
+        reload=False
+    )
+
+
+# ============================================================
+# STREAMLIT FRONTEND
+# ============================================================
+
+def start_frontend(port=None):
+    """
+    Start the Streamlit frontend.
+    """
+
+    ui_script = src_path / "ui" / "app.py"
+
+    if not ui_script.exists():
+        logger.error(
+            f"Streamlit UI file not found: {ui_script}"
+        )
+        return
+
+    if port is None:
+        port = 8501
+
+    logger.info(
+        f"Starting Streamlit frontend on port {port}"
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(ui_script),
+
+            "--server.address",
+            "0.0.0.0",
+
+            "--server.port",
+            str(port),
+
+            "--server.headless",
+            "true"
+        ]
+    )
+
+
+# ============================================================
+# RUN BACKEND + FRONTEND
+# ============================================================
+
+def start_all():
+    """
+    Start FastAPI and Streamlit together.
+
+    FastAPI uses Render's public PORT.
+
+    Streamlit runs internally on port 8501.
+    """
+
+    logger.info(
+        "Starting NexaMind FastAPI backend + Streamlit frontend..."
+    )
+
+    # Start Streamlit in background
+    ui_script = src_path / "ui" / "app.py"
+
+    if not ui_script.exists():
+        logger.error(
+            f"Streamlit UI file not found: {ui_script}"
+        )
+        return
+
+    frontend_port = 8501
+
+    frontend_cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(ui_script),
+
+        "--server.address",
+        "0.0.0.0",
+
+        "--server.port",
+        str(frontend_port),
+
+        "--server.headless",
+        "true"
+    ]
+
+    logger.info(
+        f"Starting Streamlit internally on port {frontend_port}"
+    )
+
+    frontend_proc = subprocess.Popen(frontend_cmd)
+
+    # Give Streamlit time to initialize
+    time.sleep(2)
+
+    try:
+
+        # FastAPI stays as the main process
+        start_backend()
+
+    finally:
+
+        logger.info(
+            "Stopping Streamlit frontend..."
+        )
+
+        frontend_proc.terminate()
+
+        try:
+            frontend_proc.wait(timeout=5)
+
+        except subprocess.TimeoutExpired:
+            frontend_proc.kill()
+
+
+# ============================================================
+# CLI QUERY
+# ============================================================
+
+def run_query(query):
+    """
+    Execute a RAG query directly from the command line.
+    """
+
+    logger.info(
+        f"Executing CLI RAG query: '{query}'"
+    )
+
+    rag_search = RAGSearch()
+
+    res = rag_search.search_with_sources(
+        query,
+        top_k=3
+    )
+
+    print("\n" + "=" * 50)
+
+    print(
+        f"QUERY: {res['query']}"
+    )
+
+    print("=" * 50)
+
+    print("\n--- SUMMARY ---")
+
+    print(
+        res["summary"]
+    )
+
+    print(
+        f"\n--- SOURCES ({len(res['sources'])}) ---"
+    )
+
+    for idx, src in enumerate(
+        res["sources"]
+    ):
+
+        print(
+            f"[{idx + 1}] "
+            f"L2 Dist: {src['distance']:.4f} | "
+            f"Content: {src['text'][:120]}..."
+        )
+
+
+# ============================================================
+# MAIN
 # ============================================================
 
 def main():
-    """
-    Launch NexaMind components based on command-line arguments.
-
-    Supported modes:
-
-    --backend / --api
-        Start FastAPI backend.
-
-    --frontend / --ui
-        Start Streamlit frontend.
-
-    --all / --both
-        Start backend and frontend together.
-
-    --query
-        Run a RAG query directly from the command line.
-    """
 
     parser = argparse.ArgumentParser(
         description="NexaMind Application Launcher"
@@ -96,256 +277,110 @@ def main():
         "--backend",
         "--api",
         action="store_true",
-        help="Launch FastAPI REST backend server"
+        help="Launch FastAPI REST backend"
     )
 
     parser.add_argument(
         "--frontend",
         "--ui",
         action="store_true",
-        help="Launch Streamlit Web UI dashboard"
+        help="Launch Streamlit frontend"
     )
 
     parser.add_argument(
         "--all",
         "--both",
         action="store_true",
-        help="Launch both backend and frontend concurrently"
+        help="Launch FastAPI and Streamlit"
     )
 
     parser.add_argument(
         "--query",
         type=str,
-        help="Execute a query directly via CLI"
+        help="Execute a RAG query from CLI"
     )
 
     args = parser.parse_args()
 
 
-    # ========================================================
-    # RUN BACKEND + FRONTEND
-    # ========================================================
+    # --------------------------------------------------------
+    # BOTH
+    # --------------------------------------------------------
 
     if args.all:
 
-        logger.info(
-            "Starting both Backend REST server "
-            "and Frontend UI dashboard..."
-        )
-
-        # Start backend as a separate process.
-        backend_cmd = [
-            sys.executable,
-            __file__,
-            "--backend"
-        ]
-
-        backend_proc = subprocess.Popen(backend_cmd)
-
-        logger.info(
-            "Backend process started. "
-            "Waiting 2 seconds for server initialization..."
-        )
-
-        time.sleep(2)
-
-        try:
-
-            # Start Streamlit frontend.
-            ui_script = src_path / "ui" / "app.py"
-
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "streamlit",
-                    "run",
-                    str(ui_script)
-                ]
-            )
-
-        finally:
-
-            logger.info(
-                "Shutting down backend process..."
-            )
-
-            backend_proc.terminate()
+        start_all()
 
 
-    # ========================================================
-    # RUN FASTAPI BACKEND
-    # ========================================================
+    # --------------------------------------------------------
+    # BACKEND
+    # --------------------------------------------------------
 
     elif args.backend:
 
-        import uvicorn
-
-        # Render automatically provides a PORT environment
-        # variable.
-        #
-        # On Render:
-        #     PORT -> Render supplied port
-        #
-        # Locally:
-        #     Falls back to settings.PORT (normally 8000)
-        port = int(
-            os.environ.get(
-                "PORT",
-                settings.PORT
-            )
-        )
-
-        # 0.0.0.0 is required so Render can access
-        # the application from outside the container.
-        host = "0.0.0.0"
-
-        logger.info(
-            f"Starting FastAPI backend server "
-            f"on http://{host}:{port} ..."
-        )
-
-        uvicorn.run(
-            "api.main:app",
-            host=host,
-            port=port,
-
-            # Do NOT enable reload in production.
-            reload=False
-        )
+        start_backend()
 
 
-    # ========================================================
-    # RUN STREAMLIT FRONTEND
-    # ========================================================
+    # --------------------------------------------------------
+    # FRONTEND
+    # --------------------------------------------------------
 
     elif args.frontend:
 
-        logger.info(
-            "Launching Streamlit frontend dashboard..."
+        # Render provides PORT
+        port = int(
+            os.environ.get(
+                "PORT",
+                "8501"
+            )
         )
 
-        ui_script = (
-            src_path
-            / "ui"
-            / "app.py"
-        )
-
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "streamlit",
-                "run",
-                str(ui_script)
-            ]
-        )
+        start_frontend(port)
 
 
-    # ========================================================
-    # RUN CLI QUERY
-    # ========================================================
+    # --------------------------------------------------------
+    # CLI QUERY
+    # --------------------------------------------------------
 
     elif args.query:
 
-        logger.info(
-            f"Executing CLI RAG query: '{args.query}'"
+        run_query(
+            args.query
         )
 
-        rag_search = RAGSearch()
 
-        res = rag_search.search_with_sources(
-            args.query,
-            top_k=3
-        )
-
-        print("\n" + "=" * 50)
-
-        print(
-            f"QUERY: {res['query']}"
-        )
-
-        print("=" * 50)
-
-        print("\n--- SUMMARY ---")
-
-        print(
-            res["summary"]
-        )
-
-        print(
-            f"\n--- SOURCES "
-            f"({len(res['sources'])}) ---"
-        )
-
-        for idx, src in enumerate(
-            res["sources"]
-        ):
-
-            print(
-                f"[{idx + 1}] "
-                f"L2 Dist: "
-                f"{src['distance']:.4f} | "
-                f"Content: "
-                f"{src['text'][:120]}..."
-            )
-
-
-    # ========================================================
-    # DEFAULT MODE
-    # ========================================================
+    # --------------------------------------------------------
+    # DEFAULT
+    # --------------------------------------------------------
 
     else:
 
-        logger.info(
-            "No flag specified. "
-            "Running sample CLI query..."
+        print("\nNexaMind")
+        print("=" * 50)
+
+        print(
+            "No command specified."
         )
 
-        rag_search = RAGSearch()
+        print("\nAvailable commands:")
 
-        query = "Where did Annanya study?"
-
-        res = rag_search.search_with_sources(
-            query,
-            top_k=3
+        print(
+            "python app.py --backend"
         )
 
         print(
-            "\n[Query]:",
-            query
+            "python app.py --frontend"
         )
 
         print(
-            "[Summary]:",
-            res["summary"]
+            "python app.py --all"
         )
 
         print(
-            "\n" + "-" * 50
+            'python app.py --query "your question"'
         )
 
-        print(
-            "💡 TIP: To open the interactive "
-            "Web UI in your browser, run:"
-        )
-
-        print(
-            "   python3 app.py --frontend"
-        )
-
-        print(
-            "   or run both API backend & "
-            "Web UI with:"
-        )
-
-        print(
-            "   python3 app.py --all"
-        )
-
-        print(
-            "-" * 50
-        )
+        print("=" * 50)
 
 
 # ============================================================
