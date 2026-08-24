@@ -51,11 +51,25 @@ def main():
         finally:
             logger.info("Shutting down backend process...")
             backend_proc.terminate()
-
     elif args.backend:
-        logger.info(f"Starting FastAPI backend server on http://{settings.HOST}:{settings.PORT} ...")
-        import uvicorn
-        uvicorn.run("api.main:app", host=settings.HOST, port=settings.PORT, reload=True)
+    import uvicorn
+
+    # Render provides the port through the PORT environment variable.
+    # Locally, if PORT is not set, fall back to your configured port.
+    port = int(os.environ.get("PORT", settings.PORT))
+
+    # Cloud platforms need the server to listen on all interfaces.
+    host = "0.0.0.0"
+
+    logger.info(f"Starting FastAPI backend server on http://{host}:{port} ...")
+
+    uvicorn.run(
+        "api.main:app",
+        host=host,
+        port=port,
+        reload=False
+    )
+    
     elif args.frontend:
         logger.info("Launching Streamlit frontend dashboard ...")
         ui_script = src_path / "ui" / "app.py"
