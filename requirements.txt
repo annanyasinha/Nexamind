@@ -34,6 +34,7 @@ streamlit
 requests
 youtube-transcript-api
 duckduckgo-search
+ddgs
 
 # Environment variables
 python-dotenv
