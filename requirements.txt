@@ -1,23 +1,39 @@
+# LangChain
 langchain
 langchain-core
 langchain-community
+langchain-google-genai
+langchain-groq
+langchain-openai
+langgraph
+
+# Google / Gemini
+google-genai
+
+# Vector search
+faiss-cpu
+
+# Document parsing
 pypdf
 pymupdf
-sentence-transformers
-faiss-cpu
-chromadb
-langchain-groq
-python-dotenv
-typesense
-langchain_openai
-langgraph
-langchain-google-genai
-google-genai
+python-docx
+docx2txt
+pandas
+openpyxl
+
+# Backend
 fastapi
 uvicorn
-streamlit
 python-multipart
 pydantic
+
+# Frontend
+streamlit
+
+# External tools
 requests
 youtube-transcript-api
 duckduckgo-search
+
+# Environment variables
+python-dotenv
