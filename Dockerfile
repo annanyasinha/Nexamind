@@ -20,4 +20,4 @@ COPY data/ ./data/
 
 EXPOSE 8000
 
-CMD ["python", "app.py", "--backend"]
+CMD ["python", "app.py", "--all"]
