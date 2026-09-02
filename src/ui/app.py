@@ -58,7 +58,7 @@ default_api_url = os.getenv(
 st.sidebar.subheader("📂 Session Manager")
 
 try:
-    sess_resp = requests.get(f"{default_api_url}/sessions", timeout=2).json()
+    sess_resp = requests.get(f"{default_api_url}/sessions", timeout=30).json()
     all_sessions = sess_resp.get("sessions", [])
 except Exception:
     all_sessions = session_manager.list_sessions()
