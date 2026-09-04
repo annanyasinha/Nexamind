@@ -27,3 +27,5 @@ htmlcov/
 .DS_Store
 *.swp
 *.tmp
+data/youtube_*.txt
+venev/
