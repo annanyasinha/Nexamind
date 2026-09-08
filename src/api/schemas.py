@@ -1,9 +1,10 @@
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 
 class QueryRequest(BaseModel):
-    query: str = Field(..., description="User query string for RAG", example="Where did Shubham study?")
+    query: str = Field(..., description="User query string for RAG", json_schema_extra={"example": "Where did Shubham study?"})
     top_k: int = Field(default=5, ge=1, le=20, description="Number of top context chunks to retrieve")
     session_id: Optional[str] = Field(default=None, description="Optional Session ID to automatically maintain chat history")
     chat_history: Optional[List[dict]] = Field(default=[], description="Explicit chat history (used if session_id is not provided)")
@@ -55,7 +56,7 @@ class SessionCreateRequest(BaseModel):
 
 
 class YouTubeTranscriptRequest(BaseModel):
-    url: str = Field(..., description="YouTube video URL or Video ID", example="https://www.youtube.com/watch?v=jNQXAC9IVRw")
+    url: str = Field(..., description="YouTube video URL or Video ID", json_schema_extra={"example": "https://www.youtube.com/watch?v=jNQXAC9IVRw"})
     save_to_dataset: bool = Field(default=True, description="Whether to save transcript text into settings.DATA_DIR dataset")
     auto_reindex: bool = Field(default=True, description="Whether to automatically rebuild FAISS index after adding transcript")
 
@@ -79,7 +80,7 @@ class YouTubeTranscriptResponse(BaseModel):
 
 
 class AgentQueryRequest(BaseModel):
-    query: str = Field(..., description="User query for NexaMind AI Agent", example="What is discussed in video J5_-l7WIO_w and what are the latest news on AI?")
+    query: str = Field(..., description="User query for NexaMind AI Agent", json_schema_extra={"example": "What is discussed in video J5_-l7WIO_w and what are the latest news on AI?"})
     session_id: Optional[str] = Field(default=None, description="Optional Session ID to automatically maintain chat history")
     chat_history: Optional[List[dict]] = Field(default=[], description="Explicit chat history")
     enabled_tools: Optional[List[str]] = Field(default=None, description="List of tools to enable: document_rag, youtube_rag, web_search")

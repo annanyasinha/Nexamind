@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -47,6 +48,11 @@ class Settings:
     # Directory Paths
     DATA_DIR: Path = BASE_DIR / os.getenv("DATA_DIR", "data")
     FAISS_STORE_DIR: Path = BASE_DIR / os.getenv("FAISS_STORE_DIR", "faiss_store")
+    
+    # Upload Security & Validation
+    ALLOWED_EXTENSIONS: set = {".pdf", ".txt", ".csv", ".docx", ".xlsx", ".json"}
+    MAX_FILE_SIZE_MB: int = int(os.getenv("MAX_FILE_SIZE_MB", "25"))
+    MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
 
 settings = Settings()
 

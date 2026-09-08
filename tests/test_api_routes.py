@@ -71,4 +71,44 @@ def test_query_stream_endpoint():
     assert "text/event-stream" in response.headers.get("content-type", "")
 
 
+def test_upload_unsupported_file_extension(tmp_path, monkeypatch):
+    """Tests that uploading an unallowed file extension (e.g. .exe) returns HTTP 400."""
+    import config as cfg
+    test_data_dir = tmp_path / "data"
+    test_data_dir.mkdir()
+    monkeypatch.setattr(cfg.settings, "DATA_DIR", test_data_dir)
+
+    files = [("files", ("malicious.exe", b"binary data", "application/octet-stream"))]
+    response = client.post("/upload", files=files, data={"auto_reindex": "false"})
+    assert response.status_code == 400
+    assert "Unsupported file extension" in response.json()["detail"]
+
+
+def test_upload_path_traversal_prevention(tmp_path, monkeypatch):
+    """Tests that directory traversal filenames (e.g. ../../secret.txt) are sanitized to secret.txt inside DATA_DIR."""
+    import config as cfg
+    test_data_dir = tmp_path / "data"
+    test_data_dir.mkdir()
+    monkeypatch.setattr(cfg.settings, "DATA_DIR", test_data_dir)
+
+    files = [("files", ("../../secret.txt", b"secret content", "text/plain"))]
+    response = client.post("/upload", files=files, data={"auto_reindex": "false"})
+    assert response.status_code == 200
+    assert response.json()["saved_files"] == ["secret.txt"]
+    assert (test_data_dir / "secret.txt").exists()
+    assert not (tmp_path / "secret.txt").exists()
+
+
+def test_delete_path_traversal_prevention(tmp_path, monkeypatch):
+    """Tests that path traversal delete attempts are sanitized and confined to DATA_DIR."""
+    import config as cfg
+    test_data_dir = tmp_path / "data"
+    test_data_dir.mkdir()
+    monkeypatch.setattr(cfg.settings, "DATA_DIR", test_data_dir)
+
+    response = client.delete("/documents/..%2F..%2Fsome_external_file.txt?auto_reindex=false")
+    assert response.status_code == 404
+
+
+
 

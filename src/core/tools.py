@@ -4,19 +4,20 @@ Contains tools for Document RAG, YouTube RAG, and Web Search.
 """
 
 import time
-from typing import Dict, Any, List, Optional
-from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from google import genai
 from google.genai import types
+
+from config import settings
+from core.document_loader import load_all_documents
 from core.vectorstore import FaissVectorStore
 from core.youtube_loader import fetch_youtube_transcript, save_transcript_to_dataset
-from core.document_loader import load_all_documents
-from config import settings
 from utils.logger import logger
 
 # Try importing LangChain DuckDuckGo tools
 try:
-    from langchain_community.tools import DuckDuckGoSearchRun, DuckDuckGoSearchResults
+    from langchain_community.tools import DuckDuckGoSearchResults, DuckDuckGoSearchRun
     HAS_LANGCHAIN_DDG = True
 except Exception:
     HAS_LANGCHAIN_DDG = False
@@ -230,7 +231,7 @@ class WebSearchTool:
                     output_text = self.ddg_runner.invoke(query)
                     
                 if output_text and "No good DuckDuckGo" not in output_text and "returned no results" not in output_text:
-                    logger.info(f"WebSearchTool executed successfully using LangChain DuckDuckGoSearchRun")
+                    logger.info("WebSearchTool executed successfully using LangChain DuckDuckGoSearchRun")
                 else:
                     output_text = ""
             except Exception as e:
@@ -284,8 +285,9 @@ class WebSearchTool:
 
     def _http_fallback_search(self, query: str, max_results: int = 5) -> List[Dict[str, str]]:
         """Fallback HTTP DuckDuckGo web search using requests."""
-        import requests
         import urllib.parse
+
+        import requests
         results = []
         try:
             url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json"

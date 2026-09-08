@@ -1,18 +1,19 @@
-import sys
-import os
-from pathlib import Path
 import json
+import os
+import sys
+from pathlib import Path
 
 # Ensure src directory is in sys.path when Streamlit runs directly
-src_dir = Path(__file__).resolve().parent.parent.parent
+src_dir = Path(__file__).resolve().parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 import requests
 import streamlit as st
+
+from config import settings
 from core.session_manager import session_manager
 from ui.components.styles import inject_custom_css
-from config import settings
 
 # Page Configuration
 st.set_page_config(
@@ -330,7 +331,7 @@ if nav_page == "🤖 NexaMind AI Agent":
                     success = True
                 else:
                     resp.raise_for_status()
-            except Exception as api_ex:
+            except Exception:
                 # Direct local fallback if REST API fails
                 try:
                     from api.deps import get_nexamind_agent
@@ -353,7 +354,7 @@ if nav_page == "🤖 NexaMind AI Agent":
                     })
                     success = True
                 except Exception as local_ex:
-                    st.error(f"Agent Execution Error: {str(local_ex)}")
+                    st.error(f"Agent Execution Error: {local_ex!s}")
                     if st.session_state["agent_history"] and st.session_state["agent_history"][-1]["role"] == "user":
                         st.session_state["agent_history"].pop()
         st.rerun()
@@ -387,28 +388,54 @@ elif nav_page == "💬 Interactive RAG":
     # Display Active Session Chat History
     chat_history = get_active_history()
     for chat in chat_history:
-        with st.chat_message("user", avatar=user_avatar):
-            st.write(chat["query"])
-        with st.chat_message("assistant", avatar=ai_avatar):
-            st.markdown(chat["summary"])
-            if chat.get("sources"):
-                with st.expander(f"📚 Retrieved Context Sources ({len(chat['sources'])} chunks)"):
-                    for idx, src in enumerate(chat["sources"]):
-                        dist = src.get("distance", 0.0)
-                        confidence = (1.0 / (1.0 + dist)) * 100.0
-                        text = src.get("text", "")
-                        meta = src.get("metadata", {})
-                        source_file = meta.get('source', 'Document') if isinstance(meta, dict) else 'Document'
-                        
-                        st.markdown(f"""
-                        <div class="source-box">
-                            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                                <strong>Chunk #{idx+1} &bull; <code>{source_file}</code></strong>
-                                <span class="score-meter">Relevance: {confidence:.1f}%</span>
+        # Check if chat is a combined Q&A pair entry
+        if "query" in chat and "summary" in chat:
+            with st.chat_message("user", avatar=user_avatar):
+                st.write(chat["query"])
+            with st.chat_message("assistant", avatar=ai_avatar):
+                st.markdown(chat["summary"])
+                if chat.get("sources"):
+                    with st.expander(f"📚 Retrieved Context Sources ({len(chat['sources'])} chunks)"):
+                        for idx, src in enumerate(chat["sources"]):
+                            dist = src.get("distance", 0.0)
+                            confidence = (1.0 / (1.0 + dist)) * 100.0
+                            text = src.get("text", "")
+                            meta = src.get("metadata", {})
+                            source_file = meta.get('source', 'Document') if isinstance(meta, dict) else 'Document'
+                            
+                            st.markdown(f"""
+                            <div class="source-box">
+                                <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                                    <strong>Chunk #{idx+1} &bull; <code>{source_file}</code></strong>
+                                    <span class="score-meter">Relevance: {confidence:.1f}%</span>
+                                </div>
                             </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        st.code(text, language="markdown")
+                            """, unsafe_allow_html=True)
+                            st.code(text, language="markdown")
+        else:
+            # Single role message entry
+            role = chat.get("role", "user")
+            content = chat.get("content") or chat.get("query") or chat.get("summary") or ""
+            with st.chat_message(role, avatar=user_avatar if role == "user" else ai_avatar):
+                st.markdown(content)
+                if role == "assistant" and chat.get("sources"):
+                    with st.expander(f"📚 Retrieved Context Sources ({len(chat['sources'])} chunks)"):
+                        for idx, src in enumerate(chat["sources"]):
+                            dist = src.get("distance", 0.0)
+                            confidence = (1.0 / (1.0 + dist)) * 100.0
+                            text = src.get("text", "")
+                            meta = src.get("metadata", {})
+                            source_file = meta.get('source', 'Document') if isinstance(meta, dict) else 'Document'
+                            
+                            st.markdown(f"""
+                            <div class="source-box">
+                                <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                                    <strong>Chunk #{idx+1} &bull; <code>{source_file}</code></strong>
+                                    <span class="score-meter">Relevance: {confidence:.1f}%</span>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            st.code(text, language="markdown")
 
     # Chat Input Box
     user_input = st.chat_input("Ask any question from your document knowledge base...")
@@ -473,7 +500,10 @@ elif nav_page == "📹 YouTube Q&A":
             except Exception:
                 # Direct local fallback
                 try:
-                    from core.youtube_loader import fetch_youtube_transcript, save_transcript_to_dataset
+                    from core.youtube_loader import (
+                        fetch_youtube_transcript,
+                        save_transcript_to_dataset,
+                    )
                     yt_res = fetch_youtube_transcript(yt_url.strip())
                     saved_f = save_transcript_to_dataset(yt_res, settings.DATA_DIR)
                     if auto_index_yt:
@@ -487,9 +517,9 @@ elif nav_page == "📹 YouTube Q&A":
                     st.session_state["yt_data"] = yt_res
                     st.success(f"Transcript fetched successfully! ({yt_res['segment_count']} segments)")
                 except Exception as ex:
-                    st.error(f"Error fetching YouTube transcript: {str(ex)}")
+                    st.error(f"Error fetching YouTube transcript: {ex!s}")
 
-    if "yt_data" in st.session_state and st.session_state["yt_data"]:
+    if st.session_state.get("yt_data"):
         yt_data = st.session_state["yt_data"]
         
         st.markdown("<hr style='border-color:rgba(255,255,255,0.08)'>", unsafe_allow_html=True)
@@ -632,7 +662,7 @@ elif nav_page == "🔍 Vector Explorer":
                             st.text_area("Extracted Context Text:", value=text, height=120, key=f"raw_text_{idx}")
                         st.markdown("<hr style='border-color:rgba(255,255,255,0.08)'>", unsafe_allow_html=True)
                 except Exception as e:
-                    st.error(f"Vector search failed: {str(e)}")
+                    st.error(f"Vector search failed: {e!s}")
 
 elif nav_page == "📁 Document Hub":
     st.subheader("📁 Document Knowledge Base Manager")
@@ -690,7 +720,7 @@ elif nav_page == "📁 Document Hub":
                                     st.rerun()
                                 else:
                                     st.error(f"Failed to delete: {r_del.text}")
-                            except Exception as ex:
+                            except Exception:
                                 target_path = settings.DATA_DIR / fname
                                 if target_path.exists():
                                     target_path.unlink()
@@ -712,7 +742,7 @@ elif nav_page == "📁 Document Hub":
                         r = requests.post(f"{api_base_url}/reindex")
                         st.success(r.json().get("message", "Reindexed successfully!"))
                     except Exception as e:
-                        st.error(f"Reindex failed: {str(e)}")
+                        st.error(f"Reindex failed: {e!s}")
         with col_b2:
             if st.button("🗑️ Clear All Data", use_container_width=True, help="Remove all documents and wipe vector store"):
                 with st.spinner("Wiping dataset & clearing vector index..."):
@@ -724,7 +754,7 @@ elif nav_page == "📁 Document Hub":
                         else:
                             st.error(f"Failed to clear documents: {r_clr.text}")
                     except Exception as e:
-                        st.error(f"Clear failed: {str(e)}")
+                        st.error(f"Clear failed: {e!s}")
 
 
 elif nav_page == "⚙️ System Dashboard":
@@ -790,4 +820,4 @@ elif nav_page == "⚙️ System Dashboard":
         st.markdown(f"📖 **Interactive Swagger UI OpenAPI Documentation:** [{api_base_url}/docs]({api_base_url}/docs)")
         
     except Exception as ex:
-        st.error(f"Unable to reach REST backend at {api_base_url}: {str(ex)}")
+        st.error(f"Unable to reach REST backend at {api_base_url}: {ex!s}")

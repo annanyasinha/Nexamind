@@ -1,9 +1,17 @@
 from pathlib import Path
-from typing import List, Any, Union
-from langchain_community.document_loaders import PyPDFLoader, TextLoader, CSVLoader, Docx2txtLoader, JSONLoader
+from typing import Any, List, Union
+
+from langchain_community.document_loaders import (
+    CSVLoader,
+    Docx2txtLoader,
+    JSONLoader,
+    PyPDFLoader,
+    TextLoader,
+)
 from langchain_community.document_loaders.excel import UnstructuredExcelLoader
-from utils.logger import logger
+
 from config import settings
+from utils.logger import logger
 
 
 def load_all_documents(data_dir: Union[str, Path] = None) -> List[Any]:

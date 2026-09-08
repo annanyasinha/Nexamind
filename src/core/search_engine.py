@@ -1,15 +1,12 @@
-import os
-from typing import List, Dict, Optional, Union
 from pathlib import Path
+from typing import Dict, List, Optional, Union
+
 from google import genai
-from core.vectorstore import FaissVectorStore
-from core.document_loader import load_all_documents
-from core.prompt import (
-    build_rag_prompt, 
-    format_chat_history, 
-    NO_CONTEXT_FOUND_MESSAGE
-)
+
 from config import settings
+from core.document_loader import load_all_documents
+from core.prompt import NO_CONTEXT_FOUND_MESSAGE, build_rag_prompt, format_chat_history
+from core.vectorstore import FaissVectorStore
 from utils.logger import logger
 
 
@@ -90,7 +87,7 @@ class RAGSearch:
                     logger.info(f"Successfully generated summary using model: {model}")
                     break
             except Exception as e:
-                errors.append(f"{model}: {str(e)}")
+                errors.append(f"{model}: {e!s}")
                 logger.warning(f"Generation attempt with {model} failed: {e}")
 
         if not summary:
@@ -157,7 +154,7 @@ class RAGSearch:
                     stream_success = True
                     break
             except Exception as e:
-                errors.append(f"{model}: {str(e)}")
+                errors.append(f"{model}: {e!s}")
                 logger.warning(f"Streaming attempt with {model} failed: {e}")
 
         if not stream_success:

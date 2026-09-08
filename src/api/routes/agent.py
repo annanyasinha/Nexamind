@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from api.schemas import AgentQueryRequest, AgentQueryResponse
+
 from api.deps import get_nexamind_agent
+from api.schemas import AgentQueryRequest, AgentQueryResponse
 from core.session_manager import session_manager
 from utils.logger import logger
 
@@ -21,9 +22,7 @@ def execute_agent_query(req: AgentQueryRequest):
         session_id = req.session_id
         history = req.chat_history or []
         if session_id:
-            session = session_manager.get_session(session_id)
-            if session:
-                history = session.get_history()
+            history = session_manager.get_history(session_id)
 
         res = agent.run(
             query=req.query,
@@ -52,4 +51,4 @@ def execute_agent_query(req: AgentQueryRequest):
 
     except Exception as e:
         logger.error(f"Error during agent execution: {e}")
-        raise HTTPException(status_code=500, detail=f"Agent execution error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Agent execution error: {e!s}")

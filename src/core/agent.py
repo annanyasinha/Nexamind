@@ -3,15 +3,17 @@ NexaMind Autonomous AI Agent Orchestrator.
 Routes query intent to tools (Document RAG, YouTube RAG, Web Search) and synthesizes LLM answers.
 """
 
+import json
 import re
 import time
-import json
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 from google import genai
-from core.tools import DocumentRAGTool, YouTubeRAGTool, WebSearchTool
-from core.youtube_loader import extract_youtube_id
-from core.prompt import format_chat_history
+
 from config import settings
+from core.prompt import format_chat_history
+from core.tools import DocumentRAGTool, WebSearchTool, YouTubeRAGTool
+from core.youtube_loader import extract_youtube_id
 from utils.logger import logger
 
 AGENT_PLANNER_PROMPT = """You are NexaMind AI Agent Planning Router.
@@ -53,9 +55,9 @@ class NexaMindAgent:
     """
     Autonomous Agent orchestrating Document RAG, YouTube RAG, and Web Search tools.
     """
-    def __init__(self, llm_model: str = None):
+    def __init__(self, llm_model: str = None, vectorstore: Optional[Any] = None):
         self.llm_model = llm_model or settings.DEFAULT_LLM_MODEL
-        self.doc_tool = DocumentRAGTool()
+        self.doc_tool = DocumentRAGTool(vectorstore=vectorstore)
         self.yt_tool = YouTubeRAGTool()
         self.web_tool = WebSearchTool()
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY) if settings.GOOGLE_API_KEY else genai.Client()

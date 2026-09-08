@@ -103,3 +103,33 @@ def test_agent_api_endpoint(mock_llm, mock_doc_rag, mock_doc_init):
     assert data["answer"] == "API agent response"
     assert len(data["steps"]) >= 1
     assert data["steps"][0]["tool"] == "document_rag"
+
+
+@patch("core.tools.DocumentRAGTool.__init__", return_value=None)
+@patch("core.tools.DocumentRAGTool.run")
+@patch.object(NexaMindAgent, "_generate_llm_response", return_value="Turn response")
+def test_agent_consecutive_session_queries(mock_llm, mock_doc_rag, mock_doc_init):
+    """Tests consecutive agent queries using the same active session_id without crashing."""
+    mock_doc_rag.return_value = {
+        "tool": "document_rag",
+        "output": "Mocked observation",
+        "sources": [],
+        "execution_time_ms": 5.0
+    }
+    session_id = "test_consecutive_sess"
+    
+    # Query 1 (creates session history)
+    res1 = client.post(
+        "/agent/query",
+        json={"query": "First question", "session_id": session_id, "enabled_tools": ["document_rag"]}
+    )
+    assert res1.status_code == 200
+    assert res1.json()["answer"] == "Turn response"
+
+    # Query 2 (retrieves existing session history)
+    res2 = client.post(
+        "/agent/query",
+        json={"query": "Second question follow-up", "session_id": session_id, "enabled_tools": ["document_rag"]}
+    )
+    assert res2.status_code == 200
+    assert res2.json()["answer"] == "Turn response"

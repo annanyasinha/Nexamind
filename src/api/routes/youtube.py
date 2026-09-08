@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException
-from api.schemas import YouTubeTranscriptRequest, YouTubeTranscriptResponse
+
 from api.deps import get_rag_search
-from core.youtube_loader import fetch_youtube_transcript, save_transcript_to_dataset
+from api.schemas import YouTubeTranscriptRequest, YouTubeTranscriptResponse
 from config import settings
+from core.youtube_loader import fetch_youtube_transcript, save_transcript_to_dataset
 from utils.logger import logger
 
 router = APIRouter(tags=["YouTube Integration"])
@@ -29,7 +30,7 @@ def get_youtube_transcript(req: YouTubeTranscriptRequest):
             saved_filename = file_path.name
         except Exception as e:
             logger.error(f"Failed to save YouTube transcript to file: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to save transcript: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to save transcript: {e!s}")
 
         if req.auto_reindex:
             try:

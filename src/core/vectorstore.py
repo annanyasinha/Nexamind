@@ -1,12 +1,14 @@
 import os
+import pickle
 from pathlib import Path
+from typing import Any, List, Union
+
 import faiss
 import numpy as np
-import pickle
-from typing import List, Any, Union
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from core.embeddings import EmbeddingPipeline
+
 from config import settings
+from core.embeddings import EmbeddingPipeline
 from utils.logger import logger
 
 

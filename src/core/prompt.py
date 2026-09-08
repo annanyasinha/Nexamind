@@ -2,7 +2,7 @@
 Central prompt templates and prompt builder utilities for RAG platform.
 """
 
-from typing import List, Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 RAG_SYSTEM_INSTRUCTION = """You are a helpful RAG AI Assistant. Answer the user query using the provided document context and conversation history. Maintain conversational context if the user asks follow-up questions."""
 
@@ -28,10 +28,16 @@ def format_chat_history(chat_history: Optional[List[Dict[str, str]]] = None, max
     
     recent_turns = []
     for msg in chat_history[-max_turns:]:
-        role = "User" if msg.get("role") in ["user", "human"] else "Assistant"
-        content = msg.get("content") or msg.get("summary") or msg.get("query") or ""
-        if content:
-            recent_turns.append(f"{role}: {content}")
+        if "query" in msg and "summary" in msg:
+            if msg.get("query"):
+                recent_turns.append(f"User: {msg['query']}")
+            if msg.get("summary"):
+                recent_turns.append(f"Assistant: {msg['summary']}")
+        else:
+            role = "User" if msg.get("role") in ["user", "human"] else "Assistant"
+            content = msg.get("content") or msg.get("summary") or msg.get("query") or ""
+            if content:
+                recent_turns.append(f"{role}: {content}")
     
     history_text = ""
     last_query_augment = ""

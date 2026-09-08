@@ -1,14 +1,35 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from api.deps import get_nexamind_agent, get_rag_search
+from api.routes import (
+    agent_router,
+    documents_router,
+    health_router,
+    rag_router,
+    sessions_router,
+    youtube_router,
+)
 from config import settings
-from api.deps import get_rag_search, get_nexamind_agent
-from api.routes import health_router, sessions_router, rag_router, documents_router, youtube_router, agent_router
 from utils.logger import logger
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initializes RAG search engine and AI Agent singletons during startup."""
+    logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}...")
+    get_rag_search()
+    get_nexamind_agent()
+    yield
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Production FastAPI Backend for NexaMind AI Agent & RAG Platform.",
     version=settings.VERSION,
+    lifespan=lifespan,
 )
 
 # Configure CORS Middleware
@@ -29,12 +50,6 @@ app.include_router(youtube_router)
 app.include_router(agent_router)
 
 
-@app.on_event("startup")
-def startup_event():
-    """Initializes RAG search engine and AI Agent singletons during startup."""
-    logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}...")
-    get_rag_search()
-    get_nexamind_agent()
 
 
 if __name__ == "__main__":

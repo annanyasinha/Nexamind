@@ -1,8 +1,12 @@
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+from typing import Any, Dict, List, Optional
+
 from langchain_core.documents import Document
+from youtube_transcript_api import (
+    YouTubeTranscriptApi,
+)
+
 from config import settings
 from utils.logger import logger
 
@@ -64,13 +68,13 @@ def fetch_youtube_transcript(url_or_id: str, languages: Optional[List[str]] = No
 
     try:
         raw_snippets = api.fetch(video_id, languages=pref_langs)
-    except (NoTranscriptFound, TranscriptsDisabled) as e:
-        # Fallback to listing transcripts to find auto-generated or available languages
+    except Exception as e:
+        logger.warning(f"Primary transcript fetch failed for video {video_id}: {e}")
         try:
             transcript_list = api.list(video_id)
             found_t = None
             for t in transcript_list:
-                if t.language_code in pref_langs:
+                if any(t.language_code.startswith(lang[:2]) for lang in pref_langs):
                     found_t = t
                     break
             if not found_t:
@@ -81,11 +85,9 @@ def fetch_youtube_transcript(url_or_id: str, languages: Optional[List[str]] = No
             else:
                 raise e
         except Exception as inner_e:
-            logger.error(f"Failed to retrieve transcript for {video_id}: {inner_e}")
-            raise RuntimeError(f"No usable transcript found for YouTube video ID '{video_id}'. Details: {inner_e}")
-    except Exception as e:
-        logger.error(f"Error fetching YouTube transcript for {video_id}: {e}")
-        raise RuntimeError(f"Failed to fetch YouTube transcript: {str(e)}")
+            err_msg = str(inner_e) if str(inner_e) else str(e)
+            logger.error(f"Failed to retrieve transcript for {video_id}: {err_msg}")
+            raise RuntimeError(f"Could not retrieve transcript for YouTube video ID '{video_id}'. YouTube may be restricting access or captions are unavailable. Details: {err_msg}")
 
     segments = []
     formatted_lines = []

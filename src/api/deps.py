@@ -1,6 +1,7 @@
 from typing import Optional
-from core.search_engine import RAGSearch
+
 from core.agent import NexaMindAgent
+from core.search_engine import RAGSearch
 from utils.logger import logger
 
 _rag_search_instance: Optional[RAGSearch] = None
@@ -20,10 +21,12 @@ def get_rag_search() -> RAGSearch:
 def get_nexamind_agent() -> NexaMindAgent:
     """
     Dependency injector for singleton NexaMindAgent instance.
+    Uses the shared vectorstore from RAGSearch to prevent index drift.
     """
     global _agent_instance
     if _agent_instance is None:
         logger.info("Initializing NexaMindAgent singleton instance for API...")
-        _agent_instance = NexaMindAgent()
+        rag_search = get_rag_search()
+        _agent_instance = NexaMindAgent(vectorstore=rag_search.vectorstore)
     return _agent_instance
 

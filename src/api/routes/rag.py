@@ -1,8 +1,16 @@
 import json
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from api.schemas import QueryRequest, QueryResponse, SourceItem, RawSearchResponse, RawSearchResult
+
 from api.deps import get_rag_search
+from api.schemas import (
+    QueryRequest,
+    QueryResponse,
+    RawSearchResponse,
+    RawSearchResult,
+    SourceItem,
+)
 from core.session_manager import session_manager
 
 router = APIRouter(tags=["RAG Services"])
@@ -52,7 +60,7 @@ def rag_query(request: QueryRequest):
             ]
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"RAG query execution failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"RAG query execution failed: {e!s}")
 
 @router.post("/query/stream")
 def rag_query_stream(request: QueryRequest):
@@ -115,5 +123,5 @@ def vector_search(request: QueryRequest):
         ]
         return RawSearchResponse(query=request.query, results=formatted_results)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Vector search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Vector search failed: {e!s}")
 

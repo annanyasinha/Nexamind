@@ -1,6 +1,6 @@
 """
 Logger module initialization
 """
-from .logger import setup_logger, logger
+from .logger import logger, setup_logger
 
-__all__ = ["setup_logger", "logger"]
+__all__ = ["logger", "setup_logger"]

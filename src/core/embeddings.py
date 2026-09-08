@@ -1,7 +1,9 @@
-from typing import List, Any
+from typing import Any, List
+
 import numpy as np
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from config import settings
 from utils.logger import logger
 

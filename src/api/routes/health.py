@@ -1,9 +1,11 @@
 import os
+
 from fastapi import APIRouter
-from api.schemas import SystemStatusResponse
+
 from api.deps import get_rag_search
-from core.session_manager import session_manager
+from api.schemas import SystemStatusResponse
 from config import settings
+from core.session_manager import session_manager
 
 router = APIRouter(tags=["Health & Info"])
 

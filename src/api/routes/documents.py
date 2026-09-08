@@ -1,9 +1,11 @@
 import os
-import shutil
+from pathlib import Path
 from typing import List
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from api.schemas import UploadResponse
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+
 from api.deps import get_rag_search
+from api.schemas import UploadResponse
 from config import settings
 
 router = APIRouter(tags=["Document Management"])
@@ -28,27 +30,74 @@ def list_documents():
             })
     return {"documents": files_info, "count": len(files_info)}
 
+
+def sanitize_and_validate_path(filename: str, data_dir: Path) -> Path:
+    """
+    Sanitizes user-provided filename to prevent path traversal vulnerabilities.
+    Verifies that the target path resolves strictly within data_dir.
+    """
+    if not filename or not filename.strip():
+        raise HTTPException(status_code=400, detail="Filename cannot be empty.")
+
+    # Strip directory components (e.g. "../../secret.txt" -> "secret.txt")
+    safe_name = Path(filename).name.strip()
+    if not safe_name or safe_name in [".", ".."]:
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+
+    target_path = (data_dir / safe_name).resolve()
+    resolved_data_dir = data_dir.resolve()
+
+    # Ensure resolved path remains inside resolved_data_dir boundary
+    if resolved_data_dir not in target_path.parents and target_path.parent != resolved_data_dir:
+        raise HTTPException(status_code=400, detail="Invalid filename or path traversal detected.")
+
+    return target_path
+
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_documents(
     files: List[UploadFile] = File(...),
     auto_reindex: bool = Form(True)
 ):
-    """Uploads document files and optionally rebuilds the FAISS vector index."""
+    """Uploads document files securely and optionally rebuilds the FAISS vector index."""
     data_dir = settings.DATA_DIR
     data_dir.mkdir(parents=True, exist_ok=True)
     saved_files = []
-    
+
     for file in files:
-        file_path = data_dir / file.filename
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        saved_files.append(file.filename)
-    
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Uploaded file missing filename.")
+
+        safe_filename = Path(file.filename).name.strip()
+        ext = Path(safe_filename).suffix.lower()
+
+        if ext not in settings.ALLOWED_EXTENSIONS:
+            allowed_list = ", ".join(sorted(settings.ALLOWED_EXTENSIONS))
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file extension '{ext}' for file '{safe_filename}'. Allowed extensions: {allowed_list}"
+            )
+
+        target_file = sanitize_and_validate_path(file.filename, data_dir)
+
+        # Read contents and validate file size
+        contents = await file.read()
+        if len(contents) > settings.MAX_FILE_SIZE_BYTES:
+            max_mb = settings.MAX_FILE_SIZE_MB
+            raise HTTPException(
+                status_code=400,
+                detail=f"File '{safe_filename}' exceeds maximum allowed size limit of {max_mb}MB."
+            )
+
+        with open(target_file, "wb") as buffer:
+            buffer.write(contents)
+        saved_files.append(safe_filename)
+
     doc_count = 0
     if auto_reindex:
         rag = get_rag_search()
         doc_count = rag.rebuild_index(data_dir)
-        
+
     return UploadResponse(
         message=f"Successfully uploaded {len(saved_files)} file(s).",
         saved_files=saved_files,
@@ -69,29 +118,30 @@ def reindex_vectorstore():
             "total_vectors": total_vectors
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Reindexing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Reindexing failed: {e!s}")
 
 @router.delete("/documents/{filename}")
 def delete_document(filename: str, auto_reindex: bool = True):
-    """Deletes a specific document file and updates the FAISS vector index."""
+    """Deletes a specific document file securely and updates the FAISS vector index."""
     data_dir = settings.DATA_DIR
-    target_file = data_dir / filename
+    target_file = sanitize_and_validate_path(filename, data_dir)
+
     if not target_file.exists() or not target_file.is_file():
-        raise HTTPException(status_code=404, detail=f"Document '{filename}' not found.")
-    
+        raise HTTPException(status_code=404, detail=f"Document '{target_file.name}' not found.")
+
     try:
         os.remove(target_file)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete file '{filename}': {str(e)}")
-    
+        raise HTTPException(status_code=500, detail=f"Failed to delete file '{target_file.name}': {e!s}")
+
     doc_count = 0
     if auto_reindex:
         rag = get_rag_search()
         doc_count = rag.rebuild_index(data_dir)
-        
+
     return {
         "status": "success",
-        "message": f"Successfully deleted document '{filename}'.",
+        "message": f"Successfully deleted document '{target_file.name}'.",
         "indexed_documents_count": doc_count
     }
 
