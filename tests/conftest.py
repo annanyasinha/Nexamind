@@ -7,6 +7,16 @@ src_path = Path(__file__).resolve().parent.parent / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
+import mongomock
+from core.database import mongo_db
+
+@pytest.fixture(autouse=True)
+def mock_mongo_for_tests():
+    """Autouse fixture to mock MongoDB Atlas connection across test executions using mongomock."""
+    client = mongomock.MongoClient()
+    mongo_db.set_client(client)
+    yield client
+
 @pytest.fixture
 def tmp_data_dir(tmp_path):
     d = tmp_path / "data"

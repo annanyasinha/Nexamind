@@ -12,7 +12,7 @@ class QueryRequest(BaseModel):
 
 class SourceItem(BaseModel):
     index: int
-    distance: float
+    similarity_score: float
     text: str
     metadata: Dict[str, Any]
 
@@ -26,7 +26,7 @@ class QueryResponse(BaseModel):
 
 class RawSearchResult(BaseModel):
     index: int
-    distance: float
+    similarity_score: float
     metadata: Optional[Dict[str, Any]] = None
 
 

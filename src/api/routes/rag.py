@@ -53,7 +53,7 @@ def rag_query(request: QueryRequest):
             sources=[
                 SourceItem(
                     index=s["index"],
-                    distance=s["distance"],
+                    similarity_score=s["similarity_score"],
                     text=s["text"],
                     metadata=s["metadata"]
                 ) for s in res["sources"]
@@ -113,11 +113,12 @@ def vector_search(request: QueryRequest):
     
     rag = get_rag_search()
     try:
-        raw_results = rag.vectorstore.query(request.query, top_k=request.top_k)
+        from config import settings
+        raw_results = rag.vectorstore.query(request.query, top_k=request.top_k, min_similarity=settings.MIN_SIMILARITY_SCORE)
         formatted_results = [
             RawSearchResult(
                 index=int(r.get("index", -1)),
-                distance=float(r.get("distance", 0.0)),
+                similarity_score=float(r.get("similarity_score", 0.0)),
                 metadata=r.get("metadata")
             ) for r in raw_results
         ]

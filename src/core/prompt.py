@@ -4,7 +4,9 @@ Central prompt templates and prompt builder utilities for RAG platform.
 
 from typing import Dict, List, Optional, Tuple
 
-RAG_SYSTEM_INSTRUCTION = """You are a helpful RAG AI Assistant. Answer the user query using the provided document context and conversation history. Maintain conversational context if the user asks follow-up questions."""
+RAG_SYSTEM_INSTRUCTION = """You are a helpful RAG AI Assistant. Answer the user query using the provided document context and conversation history. Maintain conversational context if the user asks follow-up questions.
+
+Crucial Instruction: Cite your statements with inline context tags such as [Source 1], [Source 2] corresponding to the relevant retrieved source context provided below. Include page numbers when available."""
 
 RAG_RESPONSE_PROMPT_TEMPLATE = """{system_instruction}
 

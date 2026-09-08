@@ -1,3 +1,4 @@
+import hashlib
 import os
 from pathlib import Path
 from typing import List
@@ -7,6 +8,8 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from api.deps import get_rag_search
 from api.schemas import UploadResponse
 from config import settings
+from core.document_loader import load_single_document
+from utils.logger import logger
 
 router = APIRouter(tags=["Document Management"])
 
@@ -59,10 +62,24 @@ async def upload_documents(
     files: List[UploadFile] = File(...),
     auto_reindex: bool = Form(True)
 ):
-    """Uploads document files securely and optionally rebuilds the FAISS vector index."""
+    """
+    Uploads document files securely and indexes them.
+    Logic:
+    - SHA-256 Checksum Match (identical content): Skip re-embedding.
+    - Same Filename + Changed Content: Overwrite file & execute full index rebuild.
+    - Brand New File: Save file & execute fast incremental vector addition.
+    """
     data_dir = settings.DATA_DIR
     data_dir.mkdir(parents=True, exist_ok=True)
+    rag = get_rag_search()
+
     saved_files = []
+    skipped_files = []
+    indexed_doc_count = 0
+    needs_full_rebuild = False
+    new_docs_to_index = []
+
+    existing_checksums = rag.vectorstore.get_indexed_checksums()
 
     for file in files:
         if not file.filename:
@@ -80,7 +97,7 @@ async def upload_documents(
 
         target_file = sanitize_and_validate_path(file.filename, data_dir)
 
-        # Read contents and validate file size
+        # Read contents and check size limit
         contents = await file.read()
         if len(contents) > settings.MAX_FILE_SIZE_BYTES:
             max_mb = settings.MAX_FILE_SIZE_MB
@@ -89,19 +106,49 @@ async def upload_documents(
                 detail=f"File '{safe_filename}' exceeds maximum allowed size limit of {max_mb}MB."
             )
 
+        # Calculate SHA-256 checksum of uploaded content
+        checksum = hashlib.sha256(contents).hexdigest()
+
+        # Step 1: Check if content checksum is already indexed
+        if checksum in existing_checksums and target_file.exists():
+            logger.info(f"File '{safe_filename}' content checksum is already indexed. Skipping embedding.")
+            skipped_files.append(safe_filename)
+            saved_files.append(safe_filename)
+            continue
+
+        # Step 2: Check if filename already exists on disk (with different content)
+        file_already_exists = target_file.exists()
+
+        # Save/overwrite file to disk
         with open(target_file, "wb") as buffer:
             buffer.write(contents)
         saved_files.append(safe_filename)
 
-    doc_count = 0
+        if auto_reindex:
+            if file_already_exists:
+                # Same filename + changed content -> trigger full rebuild to clear old vectors for this filename
+                needs_full_rebuild = True
+            else:
+                # Brand new file -> load single document for fast incremental addition
+                docs = load_single_document(target_file)
+                new_docs_to_index.extend(docs)
+
     if auto_reindex:
-        rag = get_rag_search()
-        doc_count = rag.rebuild_index(data_dir)
+        if needs_full_rebuild:
+            logger.info("One or more existing files were updated with new content. Rebuilding vector index...")
+            indexed_doc_count = rag.rebuild_index(data_dir)
+        elif new_docs_to_index:
+            logger.info(f"Incrementally adding {len(new_docs_to_index)} new document object(s) to FAISS index...")
+            indexed_doc_count = rag.add_documents(new_docs_to_index)
+
+    msg = f"Successfully processed {len(saved_files)} file(s)."
+    if skipped_files:
+        msg += f" ({len(skipped_files)} duplicate file(s) skipped re-embedding)."
 
     return UploadResponse(
-        message=f"Successfully uploaded {len(saved_files)} file(s).",
+        message=msg,
         saved_files=saved_files,
-        indexed_documents_count=doc_count
+        indexed_documents_count=indexed_doc_count
     )
 
 @router.post("/reindex")

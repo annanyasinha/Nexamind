@@ -13,7 +13,7 @@ from utils.logger import logger
 
 def extract_youtube_id(url_or_id: str) -> str:
     """
-    various YouTube URL formats/raw ID string
+    Extracts 11-character YouTube video ID from various YouTube URL formats or raw ID strings.
     Supported formats:
     - https://www.youtube.com/watch?v=VIDEO_ID
     - https://youtu.be/VIDEO_ID
@@ -148,19 +148,106 @@ def save_transcript_to_dataset(transcript_data: Dict[str, Any], data_dir: Option
     return file_path
 
 
+def chunk_youtube_transcript(
+    transcript_data: Dict[str, Any], 
+    max_chunk_chars: int = 800
+) -> List[Document]:
+    """
+    Combines raw YouTube transcript segments into text-size chunks with timestamp boundaries,
+    start/end seconds, and deep-link URLs.
+    """
+    video_id = transcript_data["video_id"]
+    base_url = f"https://www.youtube.com/watch?v={video_id}"
+    segments = transcript_data.get("segments", [])
+    
+    if not segments:
+        return []
+
+    documents = []
+    current_texts = []
+    current_chars = 0
+    start_seg = segments[0]
+    
+    for idx, seg in enumerate(segments):
+        text = seg["text"].strip()
+        if not text:
+            continue
+            
+        current_texts.append(text)
+        current_chars += len(text) + 1
+        
+        if current_chars >= max_chunk_chars or idx == len(segments) - 1:
+            end_seg = seg
+            chunk_content = " ".join(current_texts)
+            
+            start_sec = float(start_seg["start"])
+            end_sec = float(end_seg["start"] + end_seg.get("duration", 0.0))
+            ts_start = format_timestamp(start_sec)
+            ts_end = format_timestamp(end_sec)
+            deep_link = f"{base_url}&t={int(start_sec)}s"
+            
+            doc = Document(
+                page_content=chunk_content,
+                metadata={
+                    "source_type": "youtube",
+                    "source": f"YouTube Video ({video_id})",
+                    "video_id": video_id,
+                    "filename": f"youtube_{video_id}",
+                    "start_seconds": start_sec,
+                    "end_seconds": end_sec,
+                    "timestamp_start": ts_start,
+                    "timestamp_end": ts_end,
+                    "timestamp": f"{ts_start} - {ts_end}",
+                    "url": deep_link,
+                    "document_type": "youtube_transcript"
+                }
+            )
+            documents.append(doc)
+            
+            current_texts = []
+            current_chars = 0
+            if idx + 1 < len(segments):
+                start_seg = segments[idx + 1]
+
+    return documents
+
+
+def get_or_create_youtube_vectorstore(
+    url_or_id: str, 
+    transcript_data: Optional[Dict[str, Any]] = None,
+    base_store_dir: Optional[Path] = None
+):
+    """
+    Retrieves existing per-video FAISS vector store or creates and indexes a new one.
+    Implements per-video store isolation at youtube_faiss_store/{video_id}.
+    """
+    from core.vectorstore import FaissVectorStore
+    video_id = extract_youtube_id(url_or_id)
+    root_dir = Path(base_store_dir) if base_store_dir else settings.YOUTUBE_FAISS_STORE_DIR
+    video_store_dir = root_dir / video_id
+    
+    faiss_path = video_store_dir / "faiss.index"
+    meta_path = video_store_dir / "metadata.pkl"
+    
+    # Reuse cached per-video vector store if available
+    if faiss_path.exists() and meta_path.exists():
+        logger.info(f"Reusing cached YouTube FAISS vector store for video_id: '{video_id}' at {video_store_dir}")
+        vstore = FaissVectorStore(persist_dir=video_store_dir, embedding_model=settings.EMBEDDING_MODEL)
+        vstore.load()
+        return vstore
+    
+    # Create new per-video store
+    if not transcript_data:
+        logger.info(f"Fetching transcript to create new YouTube vector store for video_id: '{video_id}'")
+        transcript_data = fetch_youtube_transcript(video_id)
+        
+    chunks = chunk_youtube_transcript(transcript_data)
+    vstore = FaissVectorStore(persist_dir=video_store_dir, embedding_model=settings.EMBEDDING_MODEL)
+    vstore.build_from_documents(chunks)
+    logger.info(f"Created and saved new YouTube FAISS vector store for video_id: '{video_id}' ({len(chunks)} chunks)")
+    return vstore
+
+
 def youtube_transcript_to_documents(transcript_data: Dict[str, Any]) -> List[Document]:
     """Converts transcript data into LangChain Document objects ready for embedding."""
-    url = transcript_data["url"]
-    video_id = transcript_data["video_id"]
-    full_text = transcript_data["full_text"]
-
-    doc = Document(
-        page_content=full_text,
-        metadata={
-            "source": f"YouTube Video ({url})",
-            "video_id": video_id,
-            "url": url,
-            "type": "youtube_transcript"
-        }
-    )
-    return [doc]
+    return chunk_youtube_transcript(transcript_data)

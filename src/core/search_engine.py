@@ -1,10 +1,10 @@
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from google import genai
 
 from config import settings
-from core.document_loader import load_all_documents
+from core.document_loader import load_all_documents, load_single_document
 from core.prompt import NO_CONTEXT_FOUND_MESSAGE, build_rag_prompt, format_chat_history
 from core.vectorstore import FaissVectorStore
 from utils.logger import logger
@@ -50,21 +50,30 @@ class RAGSearch:
         history_text, last_q = format_chat_history(chat_history)
         retrieval_query = f"{last_q} {query}" if last_q else query
 
-        results = self.vectorstore.query(retrieval_query, top_k=top_k)
+        results = self.vectorstore.query(
+            retrieval_query, 
+            top_k=top_k, 
+            min_similarity=settings.MIN_SIMILARITY_SCORE
+        )
         sources = []
-        texts = []
-        for r in results:
+        formatted_context_blocks = []
+        for idx, r in enumerate(results, start=1):
             if r.get("metadata"):
-                text = r["metadata"].get("text", "")
-                texts.append(text)
+                meta = r["metadata"]
+                text = meta.get("text", "")
+                fn = meta.get("filename", "unknown")
+                pg = meta.get("page_number")
+                page_str = f" | Page {pg}" if pg is not None else ""
+                header = f"--- Context [Source {idx} | {fn}{page_str}] ---"
+                formatted_context_blocks.append(f"{header}\n{text}")
                 sources.append({
                     "index": int(r.get("index", -1)),
-                    "distance": float(r.get("distance", 0.0)),
+                    "similarity_score": float(r.get("similarity_score", 0.0)),
                     "text": text,
-                    "metadata": r.get("metadata", {})
+                    "metadata": meta
                 })
 
-        context = "\n\n".join(texts)
+        context = "\n\n".join(formatted_context_blocks)
         if not context:
             return {
                 "query": query,
@@ -110,23 +119,32 @@ class RAGSearch:
         history_text, last_q = format_chat_history(chat_history)
         retrieval_query = f"{last_q} {query}" if last_q else query
 
-        results = self.vectorstore.query(retrieval_query, top_k=top_k)
+        results = self.vectorstore.query(
+            retrieval_query, 
+            top_k=top_k, 
+            min_similarity=settings.MIN_SIMILARITY_SCORE
+        )
         sources = []
-        texts = []
-        for r in results:
+        formatted_context_blocks = []
+        for idx, r in enumerate(results, start=1):
             if r.get("metadata"):
-                text = r["metadata"].get("text", "")
-                texts.append(text)
+                meta = r["metadata"]
+                text = meta.get("text", "")
+                fn = meta.get("filename", "unknown")
+                pg = meta.get("page_number")
+                page_str = f" | Page {pg}" if pg is not None else ""
+                header = f"--- Context [Source {idx} | {fn}{page_str}] ---"
+                formatted_context_blocks.append(f"{header}\n{text}")
                 sources.append({
                     "index": int(r.get("index", -1)),
-                    "distance": float(r.get("distance", 0.0)),
+                    "similarity_score": float(r.get("similarity_score", 0.0)),
                     "text": text,
-                    "metadata": r.get("metadata", {})
+                    "metadata": meta
                 })
 
         yield {"type": "sources", "sources": sources}
 
-        context = "\n\n".join(texts)
+        context = "\n\n".join(formatted_context_blocks)
         if not context:
             yield {"type": "token", "content": NO_CONTEXT_FOUND_MESSAGE}
             yield {"type": "done", "full_summary": NO_CONTEXT_FOUND_MESSAGE}
@@ -179,4 +197,15 @@ class RAGSearch:
         else:
             self.vectorstore.clear()
             return 0
+
+    def add_documents(self, documents: List[Any]) -> int:
+        """Incrementally adds document objects to FAISS vector store with SHA-256 deduplication."""
+        return self.vectorstore.add_documents(documents)
+
+    def index_single_file(self, file_path: Union[str, Path]) -> int:
+        """Loads and incrementally indexes a single document file into FAISS vector store."""
+        docs = load_single_document(file_path)
+        if docs:
+            return self.vectorstore.add_documents(docs)
+        return 0
 

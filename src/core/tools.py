@@ -54,20 +54,23 @@ class DocumentRAGTool:
     def run(self, query: str, top_k: int = 4) -> Dict[str, Any]:
         """Executes vector similarity search on document store."""
         start_time = time.time()
-        results = self.vectorstore.query(query, top_k=top_k)
+        results = self.vectorstore.query(query, top_k=top_k, min_similarity=settings.MIN_SIMILARITY_SCORE)
         
         snippets = []
         sources = []
         for r in results:
             meta = r.get("metadata", {})
             text = meta.get("text", "")
-            src_file = meta.get("source", "Unknown Document")
+            src_file = meta.get("filename") or meta.get("source", "Unknown Document")
+            pg = meta.get("page_number")
+            page_str = f" (Page {pg})" if pg is not None else ""
             if text:
-                snippets.append(f"[Source: {src_file}]\n{text}")
+                snippets.append(f"[Source: {src_file}{page_str}]\n{text}")
                 sources.append({
                     "source": src_file,
-                    "distance": float(r.get("distance", 0.0)),
-                    "text": text
+                    "similarity_score": float(r.get("similarity_score", 0.0)),
+                    "text": text,
+                    "metadata": meta
                 })
 
         context_text = "\n\n---\n\n".join(snippets) if snippets else "No matching documents found in vector store."
@@ -84,65 +87,72 @@ class DocumentRAGTool:
 
 class YouTubeRAGTool:
     """
-    Tool for extracting YouTube transcripts and searching spoken video content.
+    Tool for extracting YouTube transcripts and searching spoken video content using FAISS Cosine Similarity.
     """
     name = "youtube_rag"
-    description = "Fetches spoken audio transcripts for YouTube video links/IDs and searches transcript segments for answers."
+    description = "Fetches spoken audio transcripts for YouTube video links/IDs and executes FAISS Cosine Similarity vector search."
 
     def run(self, query: str, url_or_id: Optional[str] = None) -> Dict[str, Any]:
-        """Fetches YouTube transcript and searches spoken transcript text."""
+        """Executes vector similarity search on timestamped YouTube video transcript store."""
         start_time = time.time()
-        transcript_data = None
         snippets = []
         sources = []
 
-        if url_or_id:
-            try:
-                logger.info(f"Fetching YouTube transcript for tool query: '{url_or_id}'")
-                transcript_data = fetch_youtube_transcript(url_or_id)
-                # Auto-save and index into DATA_DIR
-                save_transcript_to_dataset(transcript_data, settings.DATA_DIR)
-            except Exception as e:
-                logger.warning(f"Failed fetching YouTube transcript for {url_or_id}: {e}")
-
-        if transcript_data and transcript_data.get("segments"):
-            video_id = transcript_data["video_id"]
-            # Search relevant segments
-            raw_query_words = set(query.lower().split())
-            matching_segments = []
-            for seg in transcript_data["segments"]:
-                seg_text = seg["text"].lower()
-                overlap = sum(1 for w in raw_query_words if w in seg_text)
-                matching_segments.append((overlap, seg))
-
-            # Sort by keyword match overlap
-            matching_segments.sort(key=lambda x: x[0], reverse=True)
-            top_segs = [s[1] for s in matching_segments[:5]] if matching_segments else transcript_data["segments"][:5]
-
-            for s in top_segs:
-                seg_fmt = f"[{s['timestamp']}] {s['text']}"
-                snippets.append(seg_fmt)
-                sources.append({
-                    "source": f"YouTube Video ({video_id})",
-                    "timestamp": s["timestamp"],
-                    "text": s["text"]
-                })
+        try:
+            from core.youtube_loader import extract_youtube_id, get_or_create_youtube_vectorstore
             
-            output_text = f"YouTube Video ID: {video_id}\n\nSpoken Segments:\n" + "\n".join(snippets)
-        else:
-            # Fallback: Query document store for YouTube transcripts
-            from core.vectorstore import FaissVectorStore
-            vstore = FaissVectorStore(settings.FAISS_STORE_DIR, settings.EMBEDDING_MODEL)
-            vstore.load()
-            res = vstore.query(f"YouTube transcript {query}", top_k=4)
-            for r in res:
-                meta = r.get("metadata", {})
-                text = meta.get("text", "")
-                if "YouTube" in meta.get("source", "") or "youtube" in text.lower():
-                    snippets.append(f"[{meta.get('source')}]\n{text}")
-                    sources.append({"source": meta.get("source"), "text": text})
-
-            output_text = "\n\n".join(snippets) if snippets else "No YouTube transcript content found matching the query."
+            video_id = None
+            if url_or_id:
+                try:
+                    video_id = extract_youtube_id(url_or_id)
+                except Exception:
+                    pass
+                    
+            if not video_id:
+                try:
+                    video_id = extract_youtube_id(query)
+                except Exception:
+                    pass
+                    
+            if video_id:
+                logger.info(f"Executing FAISS Cosine Similarity search for YouTube video ID '{video_id}' (query: '{query}')")
+                vstore = get_or_create_youtube_vectorstore(url_or_id=video_id)
+                results = vstore.query(query, top_k=5, min_similarity=settings.YOUTUBE_MIN_SIMILARITY_SCORE)
+                
+                for r in results:
+                    meta = r.get("metadata", {})
+                    text = meta.get("text", "")
+                    ts_range = meta.get("timestamp") or meta.get("timestamp_start", "00:00")
+                    deep_link = meta.get("url", f"https://www.youtube.com/watch?v={video_id}")
+                    score = float(r.get("similarity_score", 0.0))
+                    
+                    if text:
+                        snippets.append(f"[{ts_range}] ({deep_link})\n{text}")
+                        sources.append({
+                            "source_type": "youtube",
+                            "video_id": video_id,
+                            "source": f"YouTube Video ({video_id})",
+                            "start_seconds": meta.get("start_seconds", 0.0),
+                            "end_seconds": meta.get("end_seconds", 0.0),
+                            "timestamp_start": meta.get("timestamp_start", "00:00"),
+                            "timestamp_end": meta.get("timestamp_end", "00:00"),
+                            "timestamp": ts_range,
+                            "url": deep_link,
+                            "similarity_score": score,
+                            "text": text,
+                            "metadata": meta
+                        })
+                
+                output_text = (
+                    f"YouTube Video ID: {video_id}\n\nSpoken Segments (FAISS Cosine Similarity):\n" + "\n\n".join(snippets)
+                    if snippets else
+                    f"No relevant spoken segments found in YouTube video ID '{video_id}' matching the query threshold ({settings.YOUTUBE_MIN_SIMILARITY_SCORE})."
+                )
+            else:
+                output_text = "Please provide a valid YouTube URL or Video ID to search video spoken transcript."
+        except Exception as e:
+            logger.error(f"YouTube RAG Tool execution error: {e}")
+            output_text = f"YouTube RAG Tool error: {e!s}"
 
         duration_ms = round((time.time() - start_time) * 1000, 2)
         return {

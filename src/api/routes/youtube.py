@@ -34,10 +34,11 @@ def get_youtube_transcript(req: YouTubeTranscriptRequest):
 
         if req.auto_reindex:
             try:
-                rag = get_rag_search()
-                indexed_count = rag.rebuild_index(settings.DATA_DIR)
+                from core.youtube_loader import get_or_create_youtube_vectorstore
+                yt_vstore = get_or_create_youtube_vectorstore(data["video_id"], transcript_data=data)
+                indexed_count = len(yt_vstore.metadata) if yt_vstore and yt_vstore.metadata else 0
             except Exception as e:
-                logger.error(f"Reindexing failed after saving transcript: {e}")
+                logger.error(f"Per-video FAISS indexing failed after saving transcript: {e}")
 
     return YouTubeTranscriptResponse(
         video_id=data["video_id"],

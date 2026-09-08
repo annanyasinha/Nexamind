@@ -22,3 +22,13 @@ def test_load_json_document(tmp_path):
     assert "Test User" in docs[0].page_content
 
 
+def test_load_single_document(tmp_path):
+    """Tests loading a single file using load_single_document."""
+    from core.document_loader import load_single_document
+    txt_file = tmp_path / "single_test.txt"
+    txt_file.write_text("Single file content for incremental loading.", encoding="utf-8")
+    docs = load_single_document(txt_file)
+    assert len(docs) == 1
+    assert "Single file content" in docs[0].page_content
+
+

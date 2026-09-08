@@ -25,8 +25,10 @@ class Settings:
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
     
-    # API Keys
+    # API Keys & Database Settings
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    MONGODB_URI: str = os.getenv("MONGODB_URI", "")
+    MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "nexamind")
     
     # Model Configurations
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
@@ -40,6 +42,8 @@ class Settings:
     # Vectorstore & Chunking Parameters
     CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "1000"))
     CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "200"))
+    MIN_SIMILARITY_SCORE: float = float(os.getenv("MIN_SIMILARITY_SCORE", "0.60"))
+    YOUTUBE_MIN_SIMILARITY_SCORE: float = float(os.getenv("YOUTUBE_MIN_SIMILARITY_SCORE", "0.55"))
     
     # Avatar & Branding Customizations
     USER_AVATAR: str = os.getenv("USER_AVATAR", "👤")
@@ -48,6 +52,7 @@ class Settings:
     # Directory Paths
     DATA_DIR: Path = BASE_DIR / os.getenv("DATA_DIR", "data")
     FAISS_STORE_DIR: Path = BASE_DIR / os.getenv("FAISS_STORE_DIR", "faiss_store")
+    YOUTUBE_FAISS_STORE_DIR: Path = BASE_DIR / os.getenv("YOUTUBE_FAISS_STORE_DIR", "youtube_faiss_store")
     
     # Upload Security & Validation
     ALLOWED_EXTENSIONS: set = {".pdf", ".txt", ".csv", ".docx", ".xlsx", ".json"}

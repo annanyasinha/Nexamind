@@ -36,5 +36,9 @@ youtube-transcript-api
 duckduckgo-search
 ddgs
 
+# Database
+pymongo
+dnspython
+
 # Environment variables
 python-dotenv

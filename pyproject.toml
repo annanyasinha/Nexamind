@@ -24,7 +24,9 @@ dependencies = [
     "streamlit",
     "python-multipart",
     "pydantic",
-    "requests"
+    "requests",
+    "pymongo",
+    "dnspython"
 ]
 
 [project.scripts]
@@ -34,6 +36,7 @@ rag-app = "app:main"
 dev = [
     "pytest",
     "pytest-asyncio",
+    "mongomock",
     "black",
     "ruff"
 ]

@@ -12,7 +12,6 @@ import requests
 import streamlit as st
 
 from config import settings
-from core.session_manager import session_manager
 from ui.components.styles import inject_custom_css
 
 # Page Configuration
@@ -59,10 +58,10 @@ default_api_url = os.getenv(
 st.sidebar.subheader("📂 Session Manager")
 
 try:
-    sess_resp = requests.get(f"{default_api_url}/sessions", timeout=30).json()
+    sess_resp = requests.get(f"{default_api_url}/sessions", timeout=5).json()
     all_sessions = sess_resp.get("sessions", [])
 except Exception:
-    all_sessions = session_manager.list_sessions()
+    all_sessions = []
 
 session_map = {f"{s['name']} ({s['message_count']} msgs)": s["session_id"] for s in all_sessions}
 session_ids = list(session_map.values())
@@ -85,20 +84,19 @@ col_s1, col_s2 = st.sidebar.columns(2)
 with col_s1:
     if st.button("➕ New", use_container_width=True):
         try:
-            new_s = requests.post(f"{default_api_url}/sessions").json()["session"]
+            new_s = requests.post(f"{default_api_url}/sessions", timeout=5).json()["session"]
             st.session_state.active_session_id = new_s["session_id"]
         except Exception:
-            new_s = session_manager.create_session()
-            st.session_state.active_session_id = new_s["session_id"]
+            st.sidebar.error("Failed to create session: Backend offline.")
         st.rerun()
 
 with col_s2:
     if st.button("🗑️ Delete", use_container_width=True):
         try:
-            requests.delete(f"{default_api_url}/sessions/{st.session_state.active_session_id}")
+            requests.delete(f"{default_api_url}/sessions/{st.session_state.active_session_id}", timeout=5)
+            st.session_state.active_session_id = "default"
         except Exception:
-            session_manager.delete_session(st.session_state.active_session_id)
-        st.session_state.active_session_id = "default"
+            st.sidebar.error("Failed to delete session: Backend offline.")
         st.rerun()
 
 st.sidebar.caption(f"Session ID: `{st.session_state.active_session_id}`")
@@ -164,18 +162,18 @@ st.markdown(f"""
 
 # Helper Function to Fetch Active History via REST API
 def get_active_history():
-    """Fetches conversation history for the active session via REST API or local session manager."""
+    """Fetches conversation history for the active session via REST API strictly."""
     try:
         r = requests.get(f"{api_base_url}/sessions/{st.session_state.active_session_id}", timeout=3)
         if r.status_code == 200:
             return r.json().get("history", [])
     except Exception:
         pass
-    return session_manager.get_history(st.session_state.active_session_id)
+    return []
 
 # Helper Function to Stream RAG Query Tokens
 def stream_rag_tokens(user_query, top_k):
-    """Streams real-time RAG response tokens from REST endpoint or fallback search engine generator."""
+    """Streams real-time RAG response tokens from REST endpoint strictly."""
     payload = {
         "query": user_query,
         "top_k": top_k,
@@ -207,30 +205,9 @@ def stream_rag_tokens(user_query, top_k):
                         except Exception:
                             pass
         else:
-            raise Exception(f"API Error ({response.status_code}): {response.text}")
-    except Exception:
-        # Fallback direct local streaming if API server is offline
-        from api.deps import get_rag_search
-        rag = get_rag_search()
-        history = session_manager.get_history(st.session_state.active_session_id)
-        
-        full_text = ""
-        local_sources = []
-        for event in rag.search_with_sources_stream(user_query, top_k=top_k, chat_history=history):
-            if event["type"] == "sources":
-                sources_holder.extend(event.get("sources", []))
-                local_sources = event.get("sources", [])
-            elif event["type"] == "token":
-                token = event.get("content", "")
-                full_text += token
-                yield token
-            elif event["type"] == "done":
-                session_manager.add_message_pair(
-                    session_id=st.session_state.active_session_id,
-                    user_query=user_query,
-                    assistant_summary=full_text,
-                    sources=local_sources
-                )
+            yield f"⚠️ Backend service unavailable (HTTP {response.status_code}). Please check the FastAPI connection."
+    except Exception as ex:
+        yield f"⚠️ Connection Error: Unable to reach FastAPI backend at `{api_base_url}`. Please ensure the backend server is running."
     
     st.session_state["latest_sources"] = sources_holder
 
@@ -331,32 +308,10 @@ if nav_page == "🤖 NexaMind AI Agent":
                     success = True
                 else:
                     resp.raise_for_status()
-            except Exception:
-                # Direct local fallback if REST API fails
-                try:
-                    from api.deps import get_nexamind_agent
-                    agent = get_nexamind_agent()
-                    history = get_active_history()
-                    res = agent.run(final_agent_query, chat_history=history, enabled_tools=enabled_tools)
-                    if st.session_state.active_session_id:
-                        session_manager.add_message(st.session_state.active_session_id, role="user", content=final_agent_query)
-                        session_manager.add_message(
-                            st.session_state.active_session_id, 
-                            role="assistant", 
-                            content=res["answer"], 
-                            sources=res.get("sources", [])
-                        )
-                    st.session_state["agent_history"].append({
-                        "role": "assistant",
-                        "content": res["answer"],
-                        "steps": res.get("steps", []),
-                        "execution_time_ms": res.get("execution_time_ms", 0)
-                    })
-                    success = True
-                except Exception as local_ex:
-                    st.error(f"Agent Execution Error: {local_ex!s}")
-                    if st.session_state["agent_history"] and st.session_state["agent_history"][-1]["role"] == "user":
-                        st.session_state["agent_history"].pop()
+            except Exception as ex:
+                st.error(f"⚠️ Connection Error: Unable to execute agent query via FastAPI backend (`{api_base_url}`). Please check backend status.")
+                if st.session_state["agent_history"] and st.session_state["agent_history"][-1]["role"] == "user":
+                    st.session_state["agent_history"].pop()
         st.rerun()
 
 
@@ -367,9 +322,9 @@ elif nav_page == "💬 Interactive RAG":
     with col_h2:
         if st.button("🗑️ Clear History", key="clear_chat_tab_btn", use_container_width=True):
             try:
-                requests.delete(f"{api_base_url}/sessions/{st.session_state.active_session_id}")
+                requests.delete(f"{api_base_url}/sessions/{st.session_state.active_session_id}", timeout=5)
             except Exception:
-                session_manager.clear_session(st.session_state.active_session_id)
+                st.error("Failed to clear session history: Backend service unavailable.")
             st.rerun()
 
     # Quick Prompt Badges
@@ -397,17 +352,24 @@ elif nav_page == "💬 Interactive RAG":
                 if chat.get("sources"):
                     with st.expander(f"📚 Retrieved Context Sources ({len(chat['sources'])} chunks)"):
                         for idx, src in enumerate(chat["sources"]):
-                            dist = src.get("distance", 0.0)
-                            confidence = (1.0 / (1.0 + dist)) * 100.0
+                            score = src.get("similarity_score")
+                            if score is None:
+                                dist = src.get("distance", 0.0)
+                                score = 1.0 / (1.0 + dist)
                             text = src.get("text", "")
                             meta = src.get("metadata", {})
-                            source_file = meta.get('source', 'Document') if isinstance(meta, dict) else 'Document'
-                            
+                            source_file = meta.get('filename') or meta.get('source', 'Document') if isinstance(meta, dict) else 'Document'
+                            page_num = meta.get('page_number') if isinstance(meta, dict) else None
+                            chunk_id = meta.get('chunk_id') if isinstance(meta, dict) else None
+
+                            page_badge = f" &bull; <span>Page {page_num}</span>" if page_num else ""
+                            chunk_badge = f" &bull; <span>Chunk #{chunk_id}</span>" if chunk_id else ""
+
                             st.markdown(f"""
                             <div class="source-box">
                                 <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                                    <strong>Chunk #{idx+1} &bull; <code>{source_file}</code></strong>
-                                    <span class="score-meter">Relevance: {confidence:.1f}%</span>
+                                    <strong>Chunk #{idx+1} &bull; <code>{source_file}</code>{page_badge}{chunk_badge}</strong>
+                                    <span class="score-meter">Similarity: {score:.3f}</span>
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -421,17 +383,24 @@ elif nav_page == "💬 Interactive RAG":
                 if role == "assistant" and chat.get("sources"):
                     with st.expander(f"📚 Retrieved Context Sources ({len(chat['sources'])} chunks)"):
                         for idx, src in enumerate(chat["sources"]):
-                            dist = src.get("distance", 0.0)
-                            confidence = (1.0 / (1.0 + dist)) * 100.0
+                            score = src.get("similarity_score")
+                            if score is None:
+                                dist = src.get("distance", 0.0)
+                                score = 1.0 / (1.0 + dist)
                             text = src.get("text", "")
                             meta = src.get("metadata", {})
-                            source_file = meta.get('source', 'Document') if isinstance(meta, dict) else 'Document'
-                            
+                            source_file = meta.get('filename') or meta.get('source', 'Document') if isinstance(meta, dict) else 'Document'
+                            page_num = meta.get('page_number') if isinstance(meta, dict) else None
+                            chunk_id = meta.get('chunk_id') if isinstance(meta, dict) else None
+
+                            page_badge = f" &bull; <span>Page {page_num}</span>" if page_num else ""
+                            chunk_badge = f" &bull; <span>Chunk #{chunk_id}</span>" if chunk_id else ""
+
                             st.markdown(f"""
                             <div class="source-box">
                                 <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                                    <strong>Chunk #{idx+1} &bull; <code>{source_file}</code></strong>
-                                    <span class="score-meter">Relevance: {confidence:.1f}%</span>
+                                    <strong>Chunk #{idx+1} &bull; <code>{source_file}</code>{page_badge}{chunk_badge}</strong>
+                                    <span class="score-meter">Similarity: {score:.3f}</span>
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -452,17 +421,24 @@ elif nav_page == "💬 Interactive RAG":
             if latest_sources:
                 with st.expander(f"📚 Retrieved Context Sources ({len(latest_sources)} chunks)"):
                     for idx, src in enumerate(latest_sources):
-                        dist = src.get("distance", 0.0)
-                        confidence = (1.0 / (1.0 + dist)) * 100.0
+                        score = src.get("similarity_score")
+                        if score is None:
+                            dist = src.get("distance", 0.0)
+                            score = 1.0 / (1.0 + dist)
                         text = src.get("text", "")
                         meta = src.get("metadata", {})
-                        source_file = meta.get('source', 'Document') if isinstance(meta, dict) else 'Document'
-                        
+                        source_file = meta.get('filename') or meta.get('source', 'Document') if isinstance(meta, dict) else 'Document'
+                        page_num = meta.get('page_number') if isinstance(meta, dict) else None
+                        chunk_id = meta.get('chunk_id') if isinstance(meta, dict) else None
+
+                        page_badge = f" &bull; <span>Page {page_num}</span>" if page_num else ""
+                        chunk_badge = f" &bull; <span>Chunk #{chunk_id}</span>" if chunk_id else ""
+
                         st.markdown(f"""
                         <div class="source-box">
                             <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                                <strong>Chunk #{idx+1} &bull; <code>{source_file}</code></strong>
-                                <span class="score-meter">Relevance: {confidence:.1f}%</span>
+                                <strong>Chunk #{idx+1} &bull; <code>{source_file}</code>{page_badge}{chunk_badge}</strong>
+                                <span class="score-meter">Similarity: {score:.3f}</span>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
@@ -497,27 +473,8 @@ elif nav_page == "📹 YouTube Q&A":
                     st.success(f"Transcript fetched successfully! ({st.session_state['yt_data']['segment_count']} segments)")
                 else:
                     st.error(f"Failed to fetch transcript via API: {resp.text}")
-            except Exception:
-                # Direct local fallback
-                try:
-                    from core.youtube_loader import (
-                        fetch_youtube_transcript,
-                        save_transcript_to_dataset,
-                    )
-                    yt_res = fetch_youtube_transcript(yt_url.strip())
-                    saved_f = save_transcript_to_dataset(yt_res, settings.DATA_DIR)
-                    if auto_index_yt:
-                        from api.deps import get_rag_search
-                        rag = get_rag_search()
-                        indexed_c = rag.rebuild_index(settings.DATA_DIR)
-                    else:
-                        indexed_c = 0
-                    yt_res["saved_file"] = saved_f.name
-                    yt_res["indexed_documents_count"] = indexed_c
-                    st.session_state["yt_data"] = yt_res
-                    st.success(f"Transcript fetched successfully! ({yt_res['segment_count']} segments)")
-                except Exception as ex:
-                    st.error(f"Error fetching YouTube transcript: {ex!s}")
+            except Exception as ex:
+                st.error(f"⚠️ Connection Error: Unable to fetch YouTube transcript via FastAPI backend (`{api_base_url}`). Details: {ex!s}")
 
     if st.session_state.get("yt_data"):
         yt_data = st.session_state["yt_data"]
@@ -604,7 +561,16 @@ elif nav_page == "📹 YouTube Q&A":
                             if msg.get("sources"):
                                 with st.expander(f"📚 Context Chunks Used ({len(msg['sources'])})"):
                                     for idx, src in enumerate(msg["sources"]):
-                                        st.markdown(f"**Chunk #{idx+1}** | Distance: `{src.get('distance', 0.0):.4f}`")
+                                        score = src.get("similarity_score")
+                                        if score is None:
+                                            dist = src.get("distance", 0.0)
+                                            score = 1.0 / (1.0 + dist)
+                                        meta = src.get("metadata", {})
+                                        ts = meta.get("timestamp") or src.get("timestamp") or "00:00"
+                                        deep_link = meta.get("url") or src.get("url") or ""
+                                        link_html = f" &bull; <a href='{deep_link}' target='_blank' style='color:#38bdf8; text-decoration:none;'>▶️ Watch [{ts}]</a>" if deep_link else f" &bull; <code>[{ts}]</code>"
+                                        
+                                        st.markdown(f"**Chunk #{idx+1}** | Similarity: `{score:.3f}`{link_html}", unsafe_allow_html=True)
                                         st.code(src.get("text", ""), language="markdown")
 
             # Chat Input Box
@@ -626,7 +592,7 @@ elif nav_page == "📹 YouTube Q&A":
 
 elif nav_page == "🔍 Vector Explorer":
     st.subheader("🔍 Vector Similarity Explorer")
-    st.caption("Inspect raw FAISS vector distance scores and extracted text chunks without LLM summarization.")
+    st.caption("Inspect raw FAISS vector similarity scores and extracted text chunks without LLM summarization.")
     
     col_v1, col_v2 = st.columns([3, 1])
     with col_v1:
@@ -643,22 +609,26 @@ elif nav_page == "🔍 Vector Explorer":
                     
                     st.success(f"Retrieved {len(results)} vector matches!")
                     for idx, res in enumerate(results):
-                        dist = res.get("distance", 0.0)
-                        confidence = (1.0 / (1.0 + dist)) * 100.0
+                        score = res.get("similarity_score")
+                        if score is None:
+                            dist = res.get("distance", 0.0)
+                            score = 1.0 / (1.0 + dist)
                         meta = res.get("metadata", {})
                         text = meta.get("text", "No text found") if meta else "N/A"
+                        page_num = meta.get("page_number") if isinstance(meta, dict) else None
+                        fn = meta.get("filename") or meta.get("source", "")
                         
                         col1, col2 = st.columns([1, 4])
                         with col1:
                             st.markdown(f"""
                             <div class="glass-card">
                                 <div class="glass-value">#{idx+1}</div>
-                                <div class="glass-label">Dist: {dist:.4f}</div>
-                                <div style="margin-top:6px;"><span class="score-meter">{confidence:.1f}% match</span></div>
+                                <div class="glass-label">Sim: {score:.4f}</div>
+                                <div style="margin-top:6px;"><span class="score-meter">Score: {score:.3f}</span></div>
                             </div>
                             """, unsafe_allow_html=True)
                         with col2:
-                            st.markdown(f"**Chunk Index:** `{res.get('index', 'N/A')}`")
+                            st.markdown(f"**Chunk Index:** `{res.get('index', 'N/A')}` &bull; Document: <code>{fn}</code>" + (f" &bull; Page: `{page_num}`" if page_num else ""))
                             st.text_area("Extracted Context Text:", value=text, height=120, key=f"raw_text_{idx}")
                         st.markdown("<hr style='border-color:rgba(255,255,255,0.08)'>", unsafe_allow_html=True)
                 except Exception as e:
@@ -721,13 +691,7 @@ elif nav_page == "📁 Document Hub":
                                 else:
                                     st.error(f"Failed to delete: {r_del.text}")
                             except Exception:
-                                target_path = settings.DATA_DIR / fname
-                                if target_path.exists():
-                                    target_path.unlink()
-                                    from api.deps import get_rag_search
-                                    get_rag_search().rebuild_index(settings.DATA_DIR)
-                                    st.toast(f"Deleted '{fname}'", icon="🗑️")
-                                    st.rerun()
+                                st.error(f"Failed to delete '{fname}': Backend service is unavailable.")
             else:
                 st.info("No documents uploaded yet.")
         except Exception:

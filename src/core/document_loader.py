@@ -101,3 +101,38 @@ def load_all_documents(data_dir: Union[str, Path] = None) -> List[Any]:
 
     logger.info(f"Total loaded document objects: {len(documents)}")
     return documents
+
+
+def load_single_document(file_path: Union[str, Path]) -> List[Any]:
+    """
+    Loads a single document file based on its file extension and returns LangChain document objects.
+    Supported extensions: .pdf, .txt, .csv, .xlsx, .docx, .json.
+    """
+    path = Path(file_path).resolve()
+    if not path.exists() or not path.is_file():
+        logger.warning(f"File does not exist for loading: {path}")
+        return []
+
+    ext = path.suffix.lower()
+    try:
+        if ext == ".pdf":
+            return PyPDFLoader(str(path)).load()
+        elif ext in [".txt", ".md", ".log"]:
+            return TextLoader(str(path)).load()
+        elif ext == ".csv":
+            return CSVLoader(str(path)).load()
+        elif ext == ".xlsx":
+            return UnstructuredExcelLoader(str(path)).load()
+        elif ext == ".docx":
+            return Docx2txtLoader(str(path)).load()
+        elif ext == ".json":
+            try:
+                return JSONLoader(str(path), jq_schema=".", text_content=False).load()
+            except Exception:
+                return TextLoader(str(path)).load()
+        else:
+            logger.warning(f"Unsupported file extension for single document loader: {ext}")
+            return []
+    except Exception as e:
+        logger.error(f"Failed to load single document '{path}': {e}")
+        return []
