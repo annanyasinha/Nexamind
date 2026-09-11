@@ -44,6 +44,7 @@ class Settings:
     CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "200"))
     MIN_SIMILARITY_SCORE: float = float(os.getenv("MIN_SIMILARITY_SCORE", "0.60"))
     YOUTUBE_MIN_SIMILARITY_SCORE: float = float(os.getenv("YOUTUBE_MIN_SIMILARITY_SCORE", "0.55"))
+    GITHUB_MIN_SIMILARITY_SCORE: float = float(os.getenv("GITHUB_MIN_SIMILARITY_SCORE","0.55"))
     
     # Avatar & Branding Customizations
     USER_AVATAR: str = os.getenv("USER_AVATAR", "👤")
@@ -53,6 +54,10 @@ class Settings:
     DATA_DIR: Path = BASE_DIR / os.getenv("DATA_DIR", "data")
     FAISS_STORE_DIR: Path = BASE_DIR / os.getenv("FAISS_STORE_DIR", "faiss_store")
     YOUTUBE_FAISS_STORE_DIR: Path = BASE_DIR / os.getenv("YOUTUBE_FAISS_STORE_DIR", "youtube_faiss_store")
+    GITHUB_FAISS_STORE_DIR: Path = BASE_DIR / os.getenv("GITHUB_FAISS_STORE_DIR","github_faiss_store")
+
+
+
     
     # Upload Security & Validation
     ALLOWED_EXTENSIONS: set = {".pdf", ".txt", ".csv", ".docx", ".xlsx", ".json"}
