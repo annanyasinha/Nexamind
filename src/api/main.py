@@ -6,9 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from api.rate_limit import limiter
-
 from api.deps import get_nexamind_agent, get_rag_search
+from api.rate_limit import limiter
 from api.routes import (
     agent_router,
     documents_router,
@@ -25,9 +24,13 @@ from utils.logger import logger
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initializes RAG search engine and AI Agent singletons during startup."""
-    logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}...")
+    logger.info(
+        f"Starting {settings.PROJECT_NAME} v{settings.VERSION}..."
+    )
+
     get_rag_search()
     get_nexamind_agent()
+
     yield
 
 
@@ -38,6 +41,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+# -------------------------------
+# Rate Limiting
+# -------------------------------
+
 app.state.limiter = limiter
 
 app.add_exception_handler(
@@ -45,7 +53,11 @@ app.add_exception_handler(
     _rate_limit_exceeded_handler
 )
 
-# Configure CORS Middleware
+
+# -------------------------------
+# CORS Middleware
+# -------------------------------
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -54,7 +66,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# -------------------------------
 # Register Routers
+# -------------------------------
+
 app.include_router(health_router)
 app.include_router(rag_router)
 app.include_router(sessions_router)
@@ -64,8 +80,12 @@ app.include_router(agent_router)
 app.include_router(github_router)
 
 
-
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("api.main:app", host=settings.HOST, port=settings.PORT, reload=True)
+
+    uvicorn.run(
+        "api.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=True
+    )

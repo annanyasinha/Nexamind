@@ -2,9 +2,22 @@ import hashlib
 import os
 from pathlib import Path
 from typing import List
-
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    Request
+)
 
+from api.rate_limit import (
+    limiter,
+    DOCUMENT_UPLOAD_RATE_LIMIT,
+    DOCUMENT_REINDEX_RATE_LIMIT,
+    DOCUMENT_DELETE_RATE_LIMIT,
+)
 from api.deps import get_rag_search
 from api.schemas import UploadResponse
 from config import settings
@@ -56,12 +69,14 @@ def sanitize_and_validate_path(filename: str, data_dir: Path) -> Path:
 
     return target_path
 
-
 @router.post("/upload", response_model=UploadResponse)
+@limiter.limit(DOCUMENT_UPLOAD_RATE_LIMIT)
 async def upload_documents(
+    request: Request,
     files: List[UploadFile] = File(...),
     auto_reindex: bool = Form(True)
 ):
+
     """
     Uploads document files securely and indexes them.
     Logic:
@@ -150,9 +165,9 @@ async def upload_documents(
         saved_files=saved_files,
         indexed_documents_count=indexed_doc_count
     )
-
 @router.post("/reindex")
-def reindex_vectorstore():
+@limiter.limit(DOCUMENT_REINDEX_RATE_LIMIT)
+def reindex_vectorstore(request: Request):
     """Re-indexes all documents in the dataset and updates FAISS vector store."""
     rag = get_rag_search()
     try:
@@ -168,7 +183,12 @@ def reindex_vectorstore():
         raise HTTPException(status_code=500, detail=f"Reindexing failed: {e!s}")
 
 @router.delete("/documents/{filename}")
-def delete_document(filename: str, auto_reindex: bool = True):
+@limiter.limit(DOCUMENT_DELETE_RATE_LIMIT)
+def delete_document(
+    request: Request,
+    filename: str,
+    auto_reindex: bool = True
+):
     """Deletes a specific document file securely and updates the FAISS vector index."""
     data_dir = settings.DATA_DIR
     target_file = sanitize_and_validate_path(filename, data_dir)
@@ -193,7 +213,9 @@ def delete_document(filename: str, auto_reindex: bool = True):
     }
 
 @router.delete("/documents")
-def clear_all_documents():
+@limiter.limit(DOCUMENT_DELETE_RATE_LIMIT)
+def clear_all_documents(request: Request):
+
     """Purges all files from the document dataset directory and wipes the vector index."""
     data_dir = settings.DATA_DIR
     if data_dir.exists():
