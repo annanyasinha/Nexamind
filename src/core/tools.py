@@ -14,6 +14,8 @@ from core.document_loader import load_all_documents
 from core.vectorstore import FaissVectorStore
 from core.youtube_loader import fetch_youtube_transcript, save_transcript_to_dataset
 from utils.logger import logger
+from core.github_loader import (extract_github_repo,get_or_create_github_vectorstore)
+
 
 # Try importing LangChain DuckDuckGo tools
 try:
@@ -163,7 +165,165 @@ class YouTubeRAGTool:
             "execution_time_ms": duration_ms
         }
 
+class GitHubRAGTool:
+    """
+    Tool for semantic search over GitHub repository source code
+    using a repository-specific FAISS vector store.
+    """
 
+    name = "github_rag"
+
+    description = (
+        "Searches source code and documentation inside a GitHub "
+        "repository using FAISS cosine similarity."
+    )
+
+    def run(
+        self,
+        query: str,
+        repo_url: str,
+        top_k: int = 5
+    ) -> Dict[str, Any]:
+
+        start_time = time.time()
+
+        snippets = []
+        sources = []
+
+        try:
+            if not repo_url:
+                raise ValueError(
+                    "GitHub repository URL is required."
+                )
+
+            owner, repo = extract_github_repo(
+                repo_url
+            )
+
+            logger.info(
+                f"Executing GitHub RAG search on "
+                f"{owner}/{repo} for query: '{query}'"
+            )
+
+            vectorstore = (
+                get_or_create_github_vectorstore(
+                    repo_url
+                )
+            )
+
+            results = vectorstore.query(
+                query,
+                top_k=top_k,
+                min_similarity=
+                    settings.GITHUB_MIN_SIMILARITY_SCORE
+            )
+
+            for result in results:
+
+                meta = result.get(
+                    "metadata",
+                    {}
+                )
+
+                text = meta.get(
+                    "text",
+                    ""
+                )
+
+                file_path = meta.get(
+                    "file_path",
+                    meta.get(
+                        "source",
+                        "Unknown file"
+                    )
+                )
+
+                github_url = meta.get(
+                    "github_url",
+                    repo_url
+                )
+
+                language = meta.get(
+                    "language",
+                    "text"
+                )
+
+                score = float(
+                    result.get(
+                        "similarity_score",
+                        0.0
+                    )
+                )
+
+                if not text:
+                    continue
+
+                snippets.append(
+                    f"[Repository: {owner}/{repo}]\n"
+                    f"[File: {file_path}]\n"
+                    f"[GitHub: {github_url}]\n"
+                    f"{text}"
+                )
+
+                sources.append({
+                    "source_type": "github",
+                    "repository": f"{owner}/{repo}",
+                    "file_path": file_path,
+                    "filename": meta.get(
+                        "filename"
+                    ),
+                    "language": language,
+                    "url": github_url,
+                    "commit_sha": meta.get(
+                        "commit_sha"
+                    ),
+                    "similarity_score": score,
+                    "text": text,
+                    "metadata": meta
+                })
+
+            if snippets:
+
+                output_text = (
+                    f"GitHub Repository: "
+                    f"{owner}/{repo}\n\n"
+                    f"Relevant Code Chunks:\n\n"
+                    + "\n\n---\n\n".join(
+                        snippets
+                    )
+                )
+
+            else:
+
+                output_text = (
+                    f"No relevant code was found in "
+                    f"{owner}/{repo} matching the "
+                    f"similarity threshold."
+                )
+
+        except Exception as e:
+
+            logger.error(
+                f"GitHub RAG Tool execution error: {e}"
+            )
+
+            output_text = (
+                f"GitHub RAG Tool error: {e!s}"
+            )
+
+        duration_ms = round(
+            (time.time() - start_time) * 1000,
+            2
+        )
+
+        return {
+            "tool": self.name,
+            "query": query,
+            "repo_url": repo_url,
+            "output": output_text,
+            "sources": sources,
+            "execution_time_ms": duration_ms
+        }
 class WebSearchTool:
     """
     Tool for searching live web results using LangChain's DuckDuckGoSearchRun.
@@ -323,10 +483,19 @@ class WebSearchTool:
         return results
 
 
+
 def get_tool_registry() -> Dict[str, Any]:
-    """Returns singleton dictionary of available NexaMind tools."""
+
     return {
-        DocumentRAGTool.name: DocumentRAGTool(),
-        YouTubeRAGTool.name: YouTubeRAGTool(),
-        WebSearchTool.name: WebSearchTool()
+        DocumentRAGTool.name:
+            DocumentRAGTool(),
+
+        YouTubeRAGTool.name:
+            YouTubeRAGTool(),
+
+        GitHubRAGTool.name:
+            GitHubRAGTool(),
+
+        WebSearchTool.name:
+            WebSearchTool()
     }

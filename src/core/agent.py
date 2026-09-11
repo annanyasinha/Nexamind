@@ -1,6 +1,6 @@
 """
 NexaMind Autonomous AI Agent Orchestrator.
-Routes query intent to tools (Document RAG, YouTube RAG, Web Search) and synthesizes LLM answers.
+Routes query intent to tools (Document RAG, YouTube RAG, GitHub RAG, Web Search) and synthesizes LLM answers.
 """
 
 import json
@@ -12,7 +12,7 @@ from google import genai
 
 from config import settings
 from core.prompt import format_chat_history
-from core.tools import DocumentRAGTool, WebSearchTool, YouTubeRAGTool
+from core.tools import DocumentRAGTool, WebSearchTool, YouTubeRAGTool, GitHubRAGTool
 from core.youtube_loader import extract_youtube_id
 from utils.logger import logger
 
@@ -20,27 +20,56 @@ AGENT_PLANNER_PROMPT = """You are NexaMind AI Agent Planning Router.
 Given the user query, determine which tool(s) should be called to retrieve information.
 
 Available Tools:
-1. document_rag: Use ONLY when the query specifically asks about uploaded files, PDFs, local documents, personal resume/CV, or internal dataset.
-2. youtube_rag: Use when a YouTube link or video ID is present, or when the user asks about video transcripts or spoken video content.
-3. web_search: Use when the query asks about real-world topics, current events, public news, general concepts, protests, weather, external internet information, or live topics.
+
+1. document_rag:
+Use ONLY when the query specifically asks about uploaded files,
+PDFs, local documents, personal resume/CV, or internal dataset.
+
+2. youtube_rag:
+Use when a YouTube link or video ID is present,
+or when the user asks about video transcripts or spoken video content.
+
+3. github_rag:
+Use when a GitHub repository URL is present or when the user
+asks questions about source code contained in a GitHub repository.
+
+4. web_search:
+Use when the query asks about real-world topics, current events,
+public news, general concepts, weather, external internet
+information, or other live/current topics.
 
 Instructions:
-- If a query asks about public events, real-world topics, or news (e.g. "jharkhand protest", "latest news", "weather"), select `web_search`.
-- If a query asks about uploaded documents or internal dataset files, select `document_rag`.
-- You can select multiple tools if needed (e.g. document_rag AND web_search).
-- Respond in strictly valid JSON format:
-{
-  "thought": "<short reasoning of why tools are selected>",
+
+- If a GitHub repository URL is present and the question is about
+  that repository or its code, select `github_rag`.
+- Do NOT select `web_search` merely because a GitHub URL contains
+  "http".
+- If a YouTube link is present, select `youtube_rag`.
+- If a query asks about uploaded documents, select `document_rag`.
+- If a query asks about current/live public information, select
+  `web_search`.
+- Multiple tools may be selected when genuinely required.
+
+Respond in strictly valid JSON format:
+
+{{
+  "thought": "<short reason for tool selection>",
   "tools": [
-    {"name": "document_rag" | "youtube_rag" | "web_search", "query": "<search query>", "youtube_url": "<url or id if applicable or empty>"}
+    {{
+      "name": "document_rag" | "youtube_rag" | "github_rag" | "web_search",
+      "query": "<search query>",
+      "youtube_url": "<YouTube URL or ID, otherwise empty>",
+      "github_url": "<GitHub repository URL, otherwise empty>"
+    }}
   ]
-}
+}}
 
 User Query: {query}
+
 JSON Output:"""
 
 AGENT_SYNTHESIS_PROMPT = """You are NexaMind AI Agent. Answer the user query using the retrieved tool observations below.
-Maintain a helpful, clear, and professional tone. Cite sources appropriately (e.g. Document source, YouTube timestamp, or Web search URL).
+Maintain a helpful, clear, and professional tone. Cite retrieved sources appropriately: document filename/page for Document RAG, video timestamp for YouTube RAG, repository file path for GitHub RAG, and source URL for Web Search.
 
 {history_text}
 Tool Observations Gathered by Agent:
@@ -50,15 +79,37 @@ Current User Query: {query}
 
 Synthesized Answer:"""
 
+def extract_github_url(text: str) -> Optional[str]:
+    """
+    Extract a GitHub repository URL from user text.
+    """
+
+    if not text:
+        return None
+
+    match = re.search(
+        r"https?://github\.com/[^/\s]+/[^/\s#?]+",
+        text
+    )
+
+    if not match:
+        return None
+
+    url = match.group(0)
+
+    # Remove common punctuation at end of sentence
+    return url.rstrip(".,);]")
+
 
 class NexaMindAgent:
     """
-    Autonomous Agent orchestrating Document RAG, YouTube RAG, and Web Search tools.
+    Autonomous Agent orchestrating Document RAG, YouTube RAG, GitHub RAG, and Web Search tools.
     """
     def __init__(self, llm_model: str = None, vectorstore: Optional[Any] = None):
         self.llm_model = llm_model or settings.DEFAULT_LLM_MODEL
         self.doc_tool = DocumentRAGTool(vectorstore=vectorstore)
         self.yt_tool = YouTubeRAGTool()
+        self.github_tool = GitHubRAGTool()
         self.web_tool = WebSearchTool()
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY) if settings.GOOGLE_API_KEY else genai.Client()
 
@@ -71,7 +122,7 @@ class NexaMindAgent:
         """
         Executes the AI Agent lifecycle:
         1. Query analysis & tool selection
-        2. Tool execution (Document RAG / YouTube RAG / Web Search)
+        2. Tool execution (Document RAG / YouTube RAG / GitHub RAG / Web Search)
         3. LLM synthesis of final response
         """
         start_time = time.time()
@@ -89,6 +140,7 @@ class NexaMindAgent:
             t_name = t_info.get("name")
             t_query = t_info.get("query", query)
             yt_url = t_info.get("youtube_url")
+            github_url = t_info.get("github_url")
 
             if t_name == "document_rag" and (not enabled_tools or "document_rag" in enabled_tools):
                 res = self.doc_tool.run(t_query)
@@ -110,6 +162,31 @@ class NexaMindAgent:
                     "execution_time_ms": res["execution_time_ms"]
                 })
                 observations_blocks.append(f"=== YouTube RAG Observation ===\n{res['output']}")
+                all_sources.extend(res.get("sources", []))
+
+            elif t_name == "github_rag" and (not enabled_tools or "github_rag" in enabled_tools):
+                if not github_url:
+                    github_url = extract_github_url(query)
+
+                if not github_url:
+                    logger.warning("GitHub RAG selected but no repository URL found.")
+                    continue
+
+                res = self.github_tool.run(
+                    t_query,
+                    repo_url=github_url
+                )
+
+                steps.append({
+                    "tool": "github_rag",
+                    "input": f"{t_query} (Repository: {github_url})",
+                    "output": res["output"],
+                    "execution_time_ms": res["execution_time_ms"]
+                })
+
+                observations_blocks.append(
+                    f"=== GitHub RAG Observation ===\n{res['output']}"
+                )
                 all_sources.extend(res.get("sources", []))
 
             elif t_name == "web_search" and (not enabled_tools or "web_search" in enabled_tools):
@@ -153,68 +230,147 @@ class NexaMindAgent:
             "execution_time_ms": total_duration_ms
         }
 
-    def _plan_tool_calls(self, query: str, enabled_tools: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """Determines which tool(s) to call using LLM planning router with query heuristic fallback."""
+    def _plan_tool_calls(
+        self,
+        query: str,
+        enabled_tools: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Determines which tool(s) to call using deterministic routing plus LLM planning fallback."""
         tools = []
-        
+
+        # 0. Deterministic GitHub routing
+        github_url = extract_github_url(query)
+        if github_url and (not enabled_tools or "github_rag" in enabled_tools):
+            logger.info(
+                "GitHub repository URL detected. Routing directly to GitHub RAG."
+            )
+            return [{
+                "name": "github_rag",
+                "query": query,
+                "github_url": github_url
+            }]
+
         # 1. Try LLM Planning Router for dynamic multi-tool routing
         try:
             planner_prompt = AGENT_PLANNER_PROMPT.format(query=query)
+
             for model in settings.LLM_MODEL_CANDIDATES:
                 try:
                     response = self.client.models.generate_content(
                         model=model,
                         contents=planner_prompt
                     )
+
                     if response and response.text:
                         raw_text = response.text.strip()
+
                         if "```" in raw_text:
-                            raw_text = re.sub(r"```json?\n?|\n?```", "", raw_text).strip()
+                            raw_text = re.sub(
+                                r"```json?\n?|\n?```",
+                                "",
+                                raw_text
+                            ).strip()
+
                         parsed = json.loads(raw_text)
-                        if isinstance(parsed, dict) and "tools" in parsed and isinstance(parsed["tools"], list):
+
+                        if (
+                            isinstance(parsed, dict)
+                            and "tools" in parsed
+                            and isinstance(parsed["tools"], list)
+                        ):
                             for t in parsed["tools"]:
                                 if isinstance(t, dict) and "name" in t:
                                     tools.append({
                                         "name": t["name"],
                                         "query": t.get("query", query),
-                                        "youtube_url": t.get("youtube_url", "")
+                                        "youtube_url": t.get("youtube_url", ""),
+                                        "github_url": t.get("github_url", "")
                                     })
+
                             if tools:
-                                logger.info(f"LLM Planner successfully selected {len(tools)} tool(s): {[t['name'] for t in tools]}")
+                                logger.info(
+                                    f"LLM Planner successfully selected "
+                                    f"{len(tools)} tool(s): "
+                                    f"{[t['name'] for t in tools]}"
+                                )
                                 break
+
                 except Exception as e:
-                    logger.warning(f"LLM planner attempt failed for {model}: {e}")
+                    logger.warning(
+                        f"LLM planner attempt failed for {model}: {e}"
+                    )
                     if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                         time.sleep(1.5)
-        except Exception as ex:
-            logger.warning(f"Error during LLM tool planning: {ex}")
 
-        # 2. Comprehensive Heuristic Fallback if LLM planner returned no tools
+        except Exception as ex:
+            logger.warning(
+                f"Error during LLM tool planning: {ex}"
+            )
+
+        # 2. Heuristic fallback if LLM planner returned no tools
         if not tools:
             yt_id = None
+
             try:
                 yt_id = extract_youtube_id(query)
             except Exception:
                 pass
 
-            if yt_id or any(kw in query.lower() for kw in ["youtube", "video", "transcript", "watch", "v="]):
-                tools.append({"name": "youtube_rag", "query": query, "youtube_url": yt_id or query})
+            if yt_id or any(
+                kw in query.lower()
+                for kw in ["youtube", "video", "transcript", "watch", "v="]
+            ):
+                tools.append({
+                    "name": "youtube_rag",
+                    "query": query,
+                    "youtube_url": yt_id or query
+                })
 
-            web_keywords = ["latest", "news", "today", "current", "weather", "web", "online", "price", "http", "search", "market", "trend", "recent", "developments", "internet", "protest", "who is", "what is", "tell me about", "explain", "info"]
+            web_keywords = [
+                "latest", "news", "today", "current", "weather",
+                "web", "online", "price", "search", "market",
+                "trend", "recent", "developments", "internet",
+                "protest", "who is", "what is", "tell me about",
+                "explain", "info"
+            ]
+
             if any(kw in query.lower() for kw in web_keywords):
-                tools.append({"name": "web_search", "query": query})
+                tools.append({
+                    "name": "web_search",
+                    "query": query
+                })
 
-            doc_keywords = ["doc", "pdf", "file", "index", "dataset", "resume", "skills", "uploaded", "knowledge", "shubham", "annanya", "document", "codebase"]
+            doc_keywords = [
+                "doc", "pdf", "file", "index", "dataset",
+                "resume", "skills", "uploaded", "knowledge",
+                "shubham", "annanya", "document", "codebase"
+            ]
+
             if any(kw in query.lower() for kw in doc_keywords) or not tools:
-                tools.append({"name": "document_rag", "query": query})
+                tools.append({
+                    "name": "document_rag",
+                    "query": query
+                })
 
         # 3. Filter by enabled_tools if specified in UI
         if enabled_tools:
-            filtered = [t for t in tools if t["name"] in enabled_tools]
+            filtered = [
+                t for t in tools
+                if t["name"] in enabled_tools
+            ]
+
             if filtered:
                 tools = filtered
             else:
-                tools = [{"name": enabled_tools[0], "query": query}]
+                fallback_tool = {
+                    "name": enabled_tools[0],
+                    "query": query
+                }
+
+                if enabled_tools[0] == "github_rag":
+                    fallback_tool["github_url"] = extract_github_url(query) or ""
+
+                tools = [fallback_tool]
 
         return tools
 

@@ -11,6 +11,7 @@ from api.routes import (
     rag_router,
     sessions_router,
     youtube_router,
+    github_router,
 )
 from config import settings
 from utils.logger import logger
@@ -48,6 +49,7 @@ app.include_router(sessions_router)
 app.include_router(documents_router)
 app.include_router(youtube_router)
 app.include_router(agent_router)
+app.include_router(github_router)
 
 
 

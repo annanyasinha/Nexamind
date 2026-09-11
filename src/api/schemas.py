@@ -101,4 +101,44 @@ class AgentQueryResponse(BaseModel):
     sources: List[Dict[str, Any]]
     execution_time_ms: float
 
+class GitHubIndexRequest(BaseModel):
+    repo_url: str = Field(
+        ...,
+        description="Public GitHub repository URL",
+        json_schema_extra={
+            "example": "https://github.com/annanyasinha/localconnect"
+        }
+    )
 
+
+class GitHubIndexResponse(BaseModel):
+    repository: str
+    commit_sha: str
+    total_vectors: int
+    cached: bool
+
+
+class GitHubQueryRequest(BaseModel):
+    repo_url: str = Field(
+        ...,
+        description="Public GitHub repository URL"
+    )
+
+    query: str = Field(
+        ...,
+        description="Question about the GitHub repository"
+    )
+
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=10
+    )
+
+
+class GitHubQueryResponse(BaseModel):
+    repository: str
+    query: str
+    output: str
+    sources: List[Dict[str, Any]]
+    execution_time_ms: float

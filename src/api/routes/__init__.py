@@ -7,6 +7,7 @@ from .health import router as health_router
 from .rag import router as rag_router
 from .sessions import router as sessions_router
 from .youtube import router as youtube_router
+from .github import router as github_router
 
 __all__ = [
     "agent_router",
