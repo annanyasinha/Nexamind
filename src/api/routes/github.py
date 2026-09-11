@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException , Request
 
 from api.schemas import (
     GitHubIndexRequest,
@@ -6,7 +6,11 @@ from api.schemas import (
     GitHubQueryRequest,
     GitHubQueryResponse
 )
-
+from api.rate_limit import (
+    limiter,
+    GITHUB_INDEX_RATE_LIMIT,
+    GITHUB_QUERY_RATE_LIMIT
+)
 from core.github_loader import (
     extract_github_repo,
     get_github_repo_metadata,
@@ -19,18 +23,11 @@ from core.tools import GitHubRAGTool
 from utils.logger import logger
 
 
-router = APIRouter(
-    tags=["GitHub RAG"]
-)
+router = APIRouter( tags=["GitHub RAG"])
 
-
-@router.post(
-    "/github/index",
-    response_model=GitHubIndexResponse
-)
-def index_github_repository(
-    req: GitHubIndexRequest
-):
+@router.post("/github/index",response_model=GitHubIndexResponse)
+@limiter.limit(GITHUB_INDEX_RATE_LIMIT)
+def index_github_repository(request: Request,req: GitHubIndexRequest):
     """
     Index or load a public GitHub repository
     into a repository-specific FAISS store.
@@ -94,13 +91,17 @@ def index_github_repository(
             status_code=500,
             detail=f"GitHub indexing failed: {e!s}"
         )
+
 @router.post(
     "/github/query",
     response_model=GitHubQueryResponse
 )
+@limiter.limit(GITHUB_QUERY_RATE_LIMIT)
 def query_github_repository(
+    request: Request,
     req: GitHubQueryRequest
 ):
+
     """
     Perform semantic search over a GitHub repository.
     """

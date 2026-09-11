@@ -1,15 +1,17 @@
-from fastapi import APIRouter, HTTPException
-
+from fastapi import APIRouter, HTTPException, Request
 from api.deps import get_nexamind_agent
 from api.schemas import AgentQueryRequest, AgentQueryResponse
 from core.session_manager import session_manager
 from utils.logger import logger
+from api.rate_limit import limiter, AGENT_RATE_LIMIT
 
 router = APIRouter(tags=["AI Agent"])
 
 
 @router.post("/agent/query", response_model=AgentQueryResponse)
-def execute_agent_query(req: AgentQueryRequest):
+@limiter.limit(AGENT_RATE_LIMIT)
+def execute_agent_query(request: Request,req: AgentQueryRequest):
+
     """
     Executes the NexaMind AI Agent on the query.
     Dynamically selects Document RAG, YouTube RAG, and Web Search tools,

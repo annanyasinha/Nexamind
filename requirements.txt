@@ -42,3 +42,5 @@ dnspython
 
 # Environment variables
 python-dotenv
+
+slowapi

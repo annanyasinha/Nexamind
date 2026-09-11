@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException,Request
 
+from api.rate_limit import limiter, YOUTUBE_RATE_LIMIT
 from api.deps import get_rag_search
 from api.schemas import YouTubeTranscriptRequest, YouTubeTranscriptResponse
 from config import settings
@@ -8,9 +9,16 @@ from utils.logger import logger
 
 router = APIRouter(tags=["YouTube Integration"])
 
+@router.post(
+    "/youtube/transcript",
+    response_model=YouTubeTranscriptResponse
+)
+@limiter.limit(YOUTUBE_RATE_LIMIT)
+def get_youtube_transcript(
+    request: Request,
+    req: YouTubeTranscriptRequest
+):
 
-@router.post("/youtube/transcript", response_model=YouTubeTranscriptResponse)
-def get_youtube_transcript(req: YouTubeTranscriptRequest):
     """
     Fetches transcript for a YouTube URL/Video ID, formats timestamps,
     and optionally saves to data storage & indexes into FAISS vector store.
