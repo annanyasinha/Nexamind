@@ -307,8 +307,7 @@ status_badge = (
     )
 )
 
-st.markdown(
-    dedent(f"""
+st.html(f"""
     <div class="hero-banner">
         <div style="
             display:flex;
@@ -331,9 +330,7 @@ st.markdown(
             </div>
         </div>
     </div>
-    """),
-    unsafe_allow_html=True,
-)
+    """)
 
 
 # ============================================================
@@ -532,8 +529,7 @@ def display_document_sources(
                 else ""
             )
 
-            st.markdown(
-                dedent(f"""
+            st.html(f"""
                 <div class="source-box">
                     <div style="
                         display:flex;
@@ -553,9 +549,7 @@ def display_document_sources(
                         </span>
                     </div>
                 </div>
-                """),
-                unsafe_allow_html=True,
-            )
+                """)
 
             st.code(
                 text,
@@ -1301,8 +1295,7 @@ elif nav_page == "📹 YouTube Q&A":
         )
 
         with m1:
-            st.markdown(
-                dedent(f"""
+            st.html(f"""
                 <div class="glass-card">
                     <div class="glass-value">
                         {yt_data['video_id']}
@@ -1311,13 +1304,10 @@ elif nav_page == "📹 YouTube Q&A":
                         Video ID
                     </div>
                 </div>
-                """),
-                unsafe_allow_html=True,
-            )
+                """)
 
         with m2:
-            st.markdown(
-                dedent(f"""
+            st.html(f"""
                 <div class="glass-card">
                     <div class="glass-value">
                         {yt_data['segment_count']}
@@ -1326,9 +1316,7 @@ elif nav_page == "📹 YouTube Q&A":
                         Transcript Segments
                     </div>
                 </div>
-                """),
-                unsafe_allow_html=True,
-            )
+                """)
 
         with m3:
 
@@ -1337,8 +1325,7 @@ elif nav_page == "📹 YouTube Q&A":
                 "Indexed",
             )
 
-            st.markdown(
-                dedent(f"""
+            st.html(f"""
                 <div class="glass-card">
                     <div
                         class="glass-value"
@@ -1353,9 +1340,7 @@ elif nav_page == "📹 YouTube Q&A":
                         Dataset File Status
                     </div>
                 </div>
-                """),
-                unsafe_allow_html=True,
-            )
+                """)
 
         st.markdown(
             "<br>",
@@ -2211,8 +2196,7 @@ elif nav_page == "🔍 Vector Explorer":
 
                         with col1:
 
-                            st.markdown(
-                                dedent(f"""
+                            st.html(f"""
                                 <div class="glass-card">
                                     <div class="glass-value">
                                         #{idx + 1}
@@ -2226,9 +2210,7 @@ elif nav_page == "🔍 Vector Explorer":
                                         </span>
                                     </div>
                                 </div>
-                                """),
-                                unsafe_allow_html=True,
-                            )
+                                """)
 
                         with col2:
 
@@ -2424,8 +2406,7 @@ elif nav_page == "📁 Document Hub":
 
                     with c_doc1:
 
-                        st.markdown(
-                            dedent(f"""
+                        st.html(f"""
                             <div style="
                                 background:rgba(255,255,255,0.04);
                                 border:1px solid rgba(255,255,255,0.08);
@@ -2453,9 +2434,7 @@ elif nav_page == "📁 Document Hub":
                                     </b>
                                 </span>
                             </div>
-                            """),
-                            unsafe_allow_html=True,
-                        )
+                            """)
 
                     with c_doc2:
 
@@ -2625,8 +2604,7 @@ elif nav_page == "⚙️ System Dashboard":
 
         with col1:
 
-            st.markdown(
-                dedent(f"""
+            st.html(f"""
                 <div class="glass-card">
                     <div class="glass-value">
                         {h_res.get('status', 'unknown').upper()}
@@ -2635,14 +2613,11 @@ elif nav_page == "⚙️ System Dashboard":
                         API Health
                     </div>
                 </div>
-                """),
-                unsafe_allow_html=True,
-            )
+                """)
 
         with col2:
 
-            st.markdown(
-                dedent(f"""
+            st.html(f"""
                 <div class="glass-card">
                     <div class="glass-value">
                         {h_res.get('total_vectors', 0)}
@@ -2651,14 +2626,11 @@ elif nav_page == "⚙️ System Dashboard":
                         FAISS Vectors
                     </div>
                 </div>
-                """),
-                unsafe_allow_html=True,
-            )
+                """)
 
         with col3:
 
-            st.markdown(
-                dedent(f"""
+            st.html(f"""
                 <div class="glass-card">
                     <div class="glass-value">
                         {h_res.get('active_sessions', 0)}
@@ -2667,14 +2639,11 @@ elif nav_page == "⚙️ System Dashboard":
                         Active Sessions
                     </div>
                 </div>
-                """),
-                unsafe_allow_html=True,
-            )
+                """)
 
         with col4:
 
-            st.markdown(
-                dedent(f"""
+            st.html(f"""
                 <div class="glass-card">
                     <div class="glass-value">
                         {h_res.get('data_files_count', 0)}
@@ -2683,9 +2652,7 @@ elif nav_page == "⚙️ System Dashboard":
                         Data Documents
                     </div>
                 </div>
-                """),
-                unsafe_allow_html=True,
-            )
+                """)
 
         st.markdown(
             "<br>",
