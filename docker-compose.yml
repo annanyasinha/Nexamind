@@ -12,6 +12,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./faiss_store:/app/faiss_store
+      - ./youtube_faiss_store:/app/youtube_faiss_store
+      - ./github_faiss_store:/app/github_faiss_store
     restart: unless-stopped
 
   frontend:
