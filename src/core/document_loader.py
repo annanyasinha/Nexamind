@@ -19,7 +19,7 @@ def load_all_documents(data_dir: Union[str, Path] = None, enable_vision: bool = 
     """
     Load all supported files from the specified data directory and convert to LangChain document structure.
     Supported file types: PDF, TXT, CSV, Excel (.xlsx), Word (.docx), JSON, PNG, JPG, JPEG, WEBP.
-    Includes Gemini Vision OCR and visual chart/diagram extraction for PDFs and images.
+    Includes Hybrid Tesseract OCR and Gemini Vision visual extraction for PDFs and images.
     """
     target_dir = Path(data_dir) if data_dir else settings.DATA_DIR
     data_path = target_dir.resolve()
@@ -34,7 +34,7 @@ def load_all_documents(data_dir: Union[str, Path] = None, enable_vision: bool = 
 
     documents = []
 
-    # PDF files (Text + Gemini Vision for embedded diagrams/graphs)
+    # PDF files (Text + Hybrid Tesseract OCR & Gemini Vision for embedded diagrams/graphs)
     pdf_files = list(data_path.glob("**/*.pdf"))
     if pdf_files:
         logger.info(f"Found {len(pdf_files)} PDF file(s).")
@@ -48,7 +48,7 @@ def load_all_documents(data_dir: Union[str, Path] = None, enable_vision: bool = 
             except Exception as e:
                 logger.error(f"Failed to load PDF {pdf_file}: {e}")
 
-    # Standalone Image files (Gemini Vision)
+    # Standalone Image files (Hybrid Tesseract OCR + Gemini Vision)
     image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.webp"]
     image_files = []
     for ext in image_extensions:

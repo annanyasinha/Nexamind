@@ -169,7 +169,7 @@ def extract_pdf_vision_documents(
                                     "page": page_idx,
                                     "page_number": page_num,
                                     "document_type": "scanned_pdf_ocr",
-                                    "is_vision_extracted": True,
+                                    "is_vision_extracted": False,
                                     "ocr_engine": "tesseract",
                                     "visual_analysis": False
                                 }
@@ -239,7 +239,7 @@ def extract_pdf_vision_documents(
                                 "page": page_idx,
                                 "page_number": page_num,
                                 "document_type": "multimodal",
-                                "is_vision_extracted": True,
+                                "is_vision_extracted": bool(vision_text),
                                 "ocr_engine": "tesseract" if ocr_text else "none",
                                 "visual_analysis": bool(vision_text),
                                 "image_index": img_index + 1
@@ -303,7 +303,7 @@ def load_single_image_document(image_path: Union[str, Path]) -> List[Document]:
                         "page": 0,
                         "page_number": 1,
                         "document_type": f"image_{ext}",
-                        "is_vision_extracted": True,
+                        "is_vision_extracted": bool(vision_text),
                         "ocr_engine": "tesseract" if ocr_text else "none",
                         "visual_analysis": bool(vision_text)
                     }
