@@ -35,6 +35,16 @@ def _get_genai_client() -> genai.Client:
     return genai.Client()
 
 
+def get_image_mime_type(ext: str) -> str:
+    """Standardizes image file extensions to valid MIME types (e.g. .jpg/.jpeg -> image/jpeg)."""
+    clean_ext = ext.lower().lstrip(".")
+    if clean_ext in ["jpg", "jpeg"]:
+        return "image/jpeg"
+    elif clean_ext in ["png", "webp"]:
+        return f"image/{clean_ext}"
+    return "image/png"
+
+
 FOCUSED_VISION_PROMPT = """You are an expert Document Vision Assistant for NexaMind RAG.
 Analyze the provided image from document '{filename}' (Page {page_number}).
 
@@ -66,7 +76,7 @@ def should_call_gemini_vision(
     1. Low OCR Confidence (< min_confidence) -> Tesseract produced noisy/blurry OCR -> Call Gemini Vision.
     2. Short OCR text (< min_ocr_length chars) -> Likely a chart, diagram, or visual logo -> Call Gemini Vision.
     3. Contains visual/chart keywords -> Call Gemini Vision to interpret visual trends & relationships.
-    4. Contains numerical data/years (e.g., '2023 40M', '2024 60M') -> Tesseract lacks visual relationship context -> Call Gemini Vision.
+    4. Dynamic 4-digit Year Detection (e.g., 1900-2099) -> Tesseract lacks visual relationship context for multi-year charts -> Call Gemini Vision.
     5. High-confidence plain prose -> Tesseract OCR output is sufficient -> Skip Gemini Vision call to save tokens & latency.
     """
     min_len = min_ocr_length if min_ocr_length is not None else settings.OCR_MIN_TEXT_LENGTH
@@ -88,8 +98,8 @@ def should_call_gemini_vision(
     if VISUAL_REGEX.search(ocr_text):
         return True
 
-    # Rule 4: High digit/year density indicative of chart axis / tabular series (e.g., "2022", "2023", "2024", "2025")
-    year_count = sum(1 for y in ["2020", "2021", "2022", "2023", "2024", "2025", "2026"] if y in ocr_text)
+    # Rule 4: Dynamic 4-digit year detection (e.g. 1900-2099) indicative of chart axis / tabular series
+    year_count = len(re.findall(r'\b(?:19|20)\d{2}\b', ocr_text))
     if year_count >= 2:
         return True
 
@@ -112,10 +122,6 @@ def analyze_image_bytes_gemini(
     Sends image bytes to Gemini Vision model to extract visual understanding (charts, diagrams, flowcharts).
     Gracefully catches API exceptions so document ingestion never fails if Gemini Vision is unavailable.
     """
-    if not settings.ENABLE_GEMINI_VISION:
-        logger.info("Gemini Vision is disabled in application settings.")
-        return None
-
     if not client:
         try:
             client = _get_genai_client()
@@ -149,7 +155,8 @@ def extract_pdf_vision_documents(
     min_image_size_bytes: int = None,
     max_images_per_page: int = None,
     min_scanned_page_text_len: int = None,
-    render_dpi: int = None
+    render_dpi: int = None,
+    enable_vision: bool = None
 ) -> List[Document]:
     """
     Hybrid PDF Multimodal Extractor:
@@ -161,6 +168,9 @@ def extract_pdf_vision_documents(
     if not path.exists():
         logger.warning(f"PDF file not found for multimodal extraction: {path}")
         return []
+
+    if enable_vision is None:
+        enable_vision = getattr(settings, "ENABLE_GEMINI_VISION", True)
 
     min_img_bytes = min_image_size_bytes or settings.MIN_IMAGE_SIZE_BYTES
     max_imgs = max_images_per_page or settings.MAX_IMAGES_PER_PAGE
@@ -191,7 +201,7 @@ def extract_pdf_vision_documents(
                     run_scanned_vision = should_call_gemini_vision(scanned_ocr_text, ocr_confidence=scanned_conf)
                     scanned_vision_text = None
 
-                    if run_scanned_vision and settings.ENABLE_GEMINI_VISION:
+                    if run_scanned_vision and enable_vision:
                         if client is None:
                             client = _get_genai_client()
                         scanned_vision_text = analyze_image_bytes_gemini(
@@ -254,7 +264,7 @@ def extract_pdf_vision_documents(
                 if len(image_bytes) < min_img_bytes:
                     continue  # Skip tiny icons/bullet graphics
 
-                mime_type = f"image/{image_ext}" if image_ext in ["png", "jpeg", "jpg", "webp"] else "image/png"
+                mime_type = get_image_mime_type(image_ext)
 
                 # Step 7: Run Tesseract OCR first with confidence scoring
                 ocr_text = ""
@@ -271,7 +281,7 @@ def extract_pdf_vision_documents(
                 run_vision = should_call_gemini_vision(ocr_text, ocr_confidence=ocr_conf)
                 vision_text = None
 
-                if run_vision and settings.ENABLE_GEMINI_VISION:
+                if run_vision and enable_vision:
                     if client is None:
                         client = _get_genai_client()
                     vision_text = analyze_image_bytes_gemini(
@@ -326,18 +336,22 @@ def extract_pdf_vision_documents(
     return documents
 
 
-def load_single_image_document(image_path: Union[str, Path]) -> List[Document]:
+def load_single_image_document(image_path: Union[str, Path], enable_vision: bool = None) -> List[Document]:
     """
     Loads and processes a standalone image file (.png, .jpg, .jpeg, .webp) using Hybrid Tesseract + Gemini Vision.
+    Respects explicit enable_vision flag parameter and settings.ENABLE_GEMINI_VISION.
     """
     path = Path(image_path).resolve()
     if not path.exists() or not path.is_file():
         logger.warning(f"Image file not found: {path}")
         return []
 
+    if enable_vision is None:
+        enable_vision = getattr(settings, "ENABLE_GEMINI_VISION", True)
+
     filename = path.name
     ext = path.suffix.lower().lstrip(".")
-    mime_type = f"image/{ext}" if ext in ["png", "jpeg", "jpg", "webp"] else "image/png"
+    mime_type = get_image_mime_type(ext)
 
     try:
         with open(path, "rb") as f:
@@ -351,7 +365,7 @@ def load_single_image_document(image_path: Union[str, Path]) -> List[Document]:
         run_vision = should_call_gemini_vision(ocr_text, ocr_confidence=ocr_conf)
         vision_text = None
 
-        if run_vision and settings.ENABLE_GEMINI_VISION:
+        if run_vision and enable_vision:
             client = _get_genai_client()
             vision_text = analyze_image_bytes_gemini(
                 image_bytes=image_bytes,
