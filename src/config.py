@@ -59,8 +59,17 @@ class Settings:
 
 
     
-    # Upload Security & Validation
+    # Multimodal & OCR Settings
     ENABLE_GEMINI_VISION: bool = os.getenv("ENABLE_GEMINI_VISION", "true").lower() == "true"
+    OCR_ENABLED: bool = os.getenv("OCR_ENABLED", "true").lower() == "true"
+    OCR_MIN_TEXT_LENGTH: int = int(os.getenv("OCR_MIN_TEXT_LENGTH", "60"))
+    OCR_MIN_CONFIDENCE: float = float(os.getenv("OCR_MIN_CONFIDENCE", "65.0"))
+    OCR_RENDER_DPI: int = int(os.getenv("OCR_RENDER_DPI", "200"))
+    MAX_IMAGES_PER_PAGE: int = int(os.getenv("MAX_IMAGES_PER_PAGE", "3"))
+    MIN_IMAGE_SIZE_BYTES: int = int(os.getenv("MIN_IMAGE_SIZE_BYTES", "5000"))
+    MIN_SCANNED_PAGE_TEXT_LEN: int = int(os.getenv("MIN_SCANNED_PAGE_TEXT_LEN", "50"))
+
+    # Upload Security & Validation
     ALLOWED_EXTENSIONS: set = {".pdf", ".txt", ".csv", ".docx", ".xlsx", ".json", ".png", ".jpg", ".jpeg", ".webp"}
     MAX_FILE_SIZE_MB: int = int(os.getenv("MAX_FILE_SIZE_MB", "25"))
     MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024

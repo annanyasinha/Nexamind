@@ -2,12 +2,15 @@
 NexaMind Hybrid Multimodal Document Loader.
 Combines fast local Tesseract OCR with Google Gemini Vision visual reasoning.
 - Path 1: Native PDF Text (PyPDFLoader) - cheap & fast.
-- Path 2: Scanned PDF Pages - PyMuPDF rendering + Tesseract OCR.
-- Path 3: Embedded Images & Figures - Tesseract OCR first; calls Gemini Vision only when visual reasoning (charts/diagrams/trends) is required.
+- Path 2: Scanned PDF Pages - PyMuPDF rendering + Tesseract OCR with confidence scoring.
+- Path 3: Embedded Images & Figures - Tesseract OCR first; evaluates confidence score, visual keywords, and data density before calling Gemini Vision for complex graphs/charts.
+- Resilient Fallback: If Gemini Vision fails or times out, Tesseract OCR text is preserved without failing ingestion.
 """
 
 from io import BytesIO
 from pathlib import Path
+
+import re
 from typing import Any, List, Optional, Union
 
 import fitz  # PyMuPDF
@@ -17,7 +20,11 @@ from google.genai import types
 from langchain_core.documents import Document
 
 from config import settings
-from core.ocr import extract_text_from_image_bytes, is_tesseract_available
+from core.ocr import (
+    extract_text_and_confidence_from_image_bytes,
+    extract_text_from_image_bytes,
+    is_tesseract_available,
+)
 from utils.logger import logger
 
 
@@ -39,8 +46,6 @@ Your goal is to extract VISUAL REASONING information that OCR cannot capture:
 IMPORTANT: Do NOT repeat plain OCR text word-for-word unless explaining visual relationships or chart data. Focus strictly on visual meaning and analytical takeaways.
 """
 
-import re
-
 VISUAL_KEYWORDS = [
     "graph", "chart", "diagram", "figure", "flowchart", "plot", "trend",
     "architecture", "table", "revenue", "sales", "growth", "increase", "decrease",
@@ -50,25 +55,40 @@ VISUAL_KEYWORDS = [
 VISUAL_REGEX = re.compile(r'\b(' + '|'.join(VISUAL_KEYWORDS) + r')\b', re.IGNORECASE)
 
 
-def should_call_gemini_vision(ocr_text: str, min_ocr_length: int = 60) -> bool:
+def should_call_gemini_vision(
+    ocr_text: str,
+    ocr_confidence: float = 100.0,
+    min_ocr_length: int = None,
+    min_confidence: float = None
+) -> bool:
     """
     Evaluates whether Gemini Vision is necessary for visual understanding:
-    1. Short OCR text (< min_ocr_length chars) -> Likely a chart, diagram, or visual logo -> Call Gemini Vision.
-    2. Contains visual/chart keywords -> Call Gemini Vision to interpret visual trends & relationships.
-    3. Contains numerical data/years (e.g., '2023 40M', '2024 60M') -> Even if > 60 chars, Tesseract lacks visual relationship context -> Call Gemini Vision.
-    4. Long plain prose with no visual markers -> Tesseract OCR output is sufficient -> Skip Gemini Vision call to save tokens & latency.
+    1. Low OCR Confidence (< min_confidence) -> Tesseract produced noisy/blurry OCR -> Call Gemini Vision.
+    2. Short OCR text (< min_ocr_length chars) -> Likely a chart, diagram, or visual logo -> Call Gemini Vision.
+    3. Contains visual/chart keywords -> Call Gemini Vision to interpret visual trends & relationships.
+    4. Contains numerical data/years (e.g., '2023 40M', '2024 60M') -> Tesseract lacks visual relationship context -> Call Gemini Vision.
+    5. High-confidence plain prose -> Tesseract OCR output is sufficient -> Skip Gemini Vision call to save tokens & latency.
     """
-    if len(ocr_text) < min_ocr_length:
+    min_len = min_ocr_length if min_ocr_length is not None else settings.OCR_MIN_TEXT_LENGTH
+    min_conf = min_confidence if min_confidence is not None else settings.OCR_MIN_CONFIDENCE
+
+    # Rule 1: Poor Tesseract confidence -> Call Gemini Vision for fallback
+    if ocr_confidence < min_conf and len(ocr_text) > 0:
+        logger.info(f"Low OCR confidence ({ocr_confidence}% < {min_conf}%). Triggering Gemini Vision fallback.")
         return True
 
-    # Rule 2: Symbols or visual keywords matched on word boundaries
+    # Rule 2: Short OCR text -> Likely an image, chart, or diagram
+    if len(ocr_text) < min_len:
+        return True
+
+    # Rule 3: Symbols or visual keywords matched on word boundaries
     if any(sym in ocr_text for sym in ["%", "$", "€", "£"]):
         return True
 
     if VISUAL_REGEX.search(ocr_text):
         return True
 
-    # Rule 3: High digit/year density indicative of chart axis / tabular series (e.g., "2022", "2023", "2024", "2025")
+    # Rule 4: High digit/year density indicative of chart axis / tabular series (e.g., "2022", "2023", "2024", "2025")
     year_count = sum(1 for y in ["2020", "2021", "2022", "2023", "2024", "2025", "2026"] if y in ocr_text)
     if year_count >= 2:
         return True
@@ -77,7 +97,7 @@ def should_call_gemini_vision(ocr_text: str, min_ocr_length: int = 60) -> bool:
     if len(ocr_text) > 0 and (digit_count / len(ocr_text)) > 0.15:
         return True
 
-    # Rule 4: Plain text prose -> Tesseract OCR is sufficient
+    # Rule 5: Plain text prose with good confidence -> Tesseract OCR is sufficient
     return False
 
 
@@ -90,7 +110,12 @@ def analyze_image_bytes_gemini(
 ) -> Optional[str]:
     """
     Sends image bytes to Gemini Vision model to extract visual understanding (charts, diagrams, flowcharts).
+    Gracefully catches API exceptions so document ingestion never fails if Gemini Vision is unavailable.
     """
+    if not settings.ENABLE_GEMINI_VISION:
+        logger.info("Gemini Vision is disabled in application settings.")
+        return None
+
     if not client:
         try:
             client = _get_genai_client()
@@ -121,23 +146,30 @@ def analyze_image_bytes_gemini(
 
 def extract_pdf_vision_documents(
     pdf_path: Union[str, Path],
-    min_image_size_bytes: int = 5000,
-    max_images_per_page: int = 3,
-    min_scanned_page_text_len: int = 50
+    min_image_size_bytes: int = None,
+    max_images_per_page: int = None,
+    min_scanned_page_text_len: int = None,
+    render_dpi: int = None
 ) -> List[Document]:
     """
     Hybrid PDF Multimodal Extractor:
     1. Scanned PDF Pages: If native page text < min_scanned_page_text_len, renders page as image and runs Tesseract OCR.
-    2. Embedded Images/Figures: Runs Tesseract OCR first, then evaluates decision rule before calling Gemini Vision for complex graphs/charts.
-    3. Combines OCR text + Visual Reasoning into unified LangChain Document objects.
+    2. Embedded Images/Figures: Runs Tesseract OCR first, then evaluates confidence & decision rules before calling Gemini Vision for complex graphs/charts.
+    3. Combines OCR text + Visual Reasoning into unified LangChain Document objects with rich metadata and deduplication.
     """
     path = Path(pdf_path).resolve()
     if not path.exists():
         logger.warning(f"PDF file not found for multimodal extraction: {path}")
         return []
 
+    min_img_bytes = min_image_size_bytes or settings.MIN_IMAGE_SIZE_BYTES
+    max_imgs = max_images_per_page or settings.MAX_IMAGES_PER_PAGE
+    min_scanned_len = min_scanned_page_text_len or settings.MIN_SCANNED_PAGE_TEXT_LEN
+    dpi_val = render_dpi or settings.OCR_RENDER_DPI
+
     documents: List[Document] = []
     filename = path.name
+    seen_contents = set()
 
     try:
         doc = fitz.open(str(path))
@@ -149,15 +181,16 @@ def extract_pdf_vision_documents(
 
             # 1. Check for Scanned PDF Page (Native text missing or very short)
             native_text = page.get_text().strip()
-            if len(native_text) < min_scanned_page_text_len and is_tesseract_available():
+            if len(native_text) < min_scanned_len and is_tesseract_available() and settings.OCR_ENABLED:
                 try:
-                    pix = page.get_pixmap(dpi=150)
+                    pix = page.get_pixmap(dpi=dpi_val)
                     page_img_bytes = pix.tobytes("png")
-                    scanned_ocr_text = extract_text_from_image_bytes(page_img_bytes)
+                    scanned_ocr_text, scanned_conf = extract_text_and_confidence_from_image_bytes(page_img_bytes)
 
-                    if len(scanned_ocr_text) >= 20:
+                    if len(scanned_ocr_text) >= 20 and scanned_ocr_text not in seen_contents:
+                        seen_contents.add(scanned_ocr_text)
                         doc_content = (
-                            f"[Scanned PDF Page {page_num} OCR - Tesseract | Document: {filename}]\n"
+                            f"[Scanned PDF Page {page_num} OCR - Tesseract (Conf: {scanned_conf}%) | Document: {filename}]\n"
                             f"{scanned_ocr_text}"
                         )
                         documents.append(
@@ -171,11 +204,12 @@ def extract_pdf_vision_documents(
                                     "document_type": "scanned_pdf_ocr",
                                     "is_vision_extracted": False,
                                     "ocr_engine": "tesseract",
+                                    "ocr_confidence": scanned_conf,
                                     "visual_analysis": False
                                 }
                             )
                         )
-                        logger.info(f"Scanned PDF OCR extracted {len(scanned_ocr_text)} chars from page {page_num} of '{filename}'")
+                        logger.info(f"Scanned PDF OCR extracted {len(scanned_ocr_text)} chars (Conf: {scanned_conf}%) from page {page_num} of '{filename}'")
                 except Exception as e:
                     logger.warning(f"Scanned PDF page rendering/OCR error on page {page_num}: {e}")
 
@@ -186,7 +220,7 @@ def extract_pdf_vision_documents(
 
             extracted_count = 0
             for img_index, img in enumerate(image_list):
-                if extracted_count >= max_images_per_page:
+                if extracted_count >= max_imgs:
                     break
 
                 xref = img[0]
@@ -194,19 +228,27 @@ def extract_pdf_vision_documents(
                 image_bytes = base_image["image"]
                 image_ext = base_image["ext"].lower()
 
-                if len(image_bytes) < min_image_size_bytes:
+                if len(image_bytes) < min_img_bytes:
                     continue  # Skip tiny icons/bullet graphics
 
                 mime_type = f"image/{image_ext}" if image_ext in ["png", "jpeg", "jpg", "webp"] else "image/png"
 
-                # Step 7: Run Tesseract OCR first
-                ocr_text = extract_text_from_image_bytes(image_bytes)
+                # Step 7: Run Tesseract OCR first with confidence scoring
+                ocr_text = ""
+                ocr_conf = 0.0
+                if settings.OCR_ENABLED and is_tesseract_available():
+                    ocr_text, ocr_conf = extract_text_and_confidence_from_image_bytes(image_bytes)
+
+                # Deduplication check against native text
+                if ocr_text and ocr_text in native_text:
+                    logger.debug(f"Skipping duplicate embedded OCR text on page {page_num}")
+                    continue
 
                 # Step 8: Evaluate whether Gemini Vision is necessary
-                run_vision = should_call_gemini_vision(ocr_text)
+                run_vision = should_call_gemini_vision(ocr_text, ocr_confidence=ocr_conf)
                 vision_text = None
 
-                if run_vision:
+                if run_vision and settings.ENABLE_GEMINI_VISION:
                     if client is None:
                         client = _get_genai_client()
                     vision_text = analyze_image_bytes_gemini(
@@ -220,11 +262,16 @@ def extract_pdf_vision_documents(
                 # Step 10: Combine results into unified Document
                 content_blocks = []
                 if ocr_text:
-                    content_blocks.append(f"[Tesseract OCR Text]\n{ocr_text}")
+                    content_blocks.append(f"[Tesseract OCR Text (Conf: {ocr_conf}%)]\n{ocr_text}")
                 if vision_text:
                     content_blocks.append(f"[Gemini Visual Analysis]\n{vision_text}")
 
                 if content_blocks:
+                    combo_key = f"{ocr_text}_{vision_text}"
+                    if combo_key in seen_contents:
+                        continue
+                    seen_contents.add(combo_key)
+
                     extracted_count += 1
                     doc_content = (
                         f"[Multimodal Document Chunk - File: {filename} | Page {page_num} | Image {extracted_count}]\n"
@@ -241,6 +288,7 @@ def extract_pdf_vision_documents(
                                 "document_type": "multimodal",
                                 "is_vision_extracted": bool(vision_text),
                                 "ocr_engine": "tesseract" if ocr_text else "none",
+                                "ocr_confidence": ocr_conf if ocr_text else 0.0,
                                 "visual_analysis": bool(vision_text),
                                 "image_index": img_index + 1
                             }
@@ -272,11 +320,15 @@ def load_single_image_document(image_path: Union[str, Path]) -> List[Document]:
         with open(path, "rb") as f:
             image_bytes = f.read()
 
-        ocr_text = extract_text_from_image_bytes(image_bytes)
-        run_vision = should_call_gemini_vision(ocr_text)
+        ocr_text = ""
+        ocr_conf = 0.0
+        if settings.OCR_ENABLED and is_tesseract_available():
+            ocr_text, ocr_conf = extract_text_and_confidence_from_image_bytes(image_bytes)
+
+        run_vision = should_call_gemini_vision(ocr_text, ocr_confidence=ocr_conf)
         vision_text = None
 
-        if run_vision:
+        if run_vision and settings.ENABLE_GEMINI_VISION:
             client = _get_genai_client()
             vision_text = analyze_image_bytes_gemini(
                 image_bytes=image_bytes,
@@ -288,7 +340,7 @@ def load_single_image_document(image_path: Union[str, Path]) -> List[Document]:
 
         content_blocks = []
         if ocr_text:
-            content_blocks.append(f"[Tesseract OCR Text]\n{ocr_text}")
+            content_blocks.append(f"[Tesseract OCR Text (Conf: {ocr_conf}%)]\n{ocr_text}")
         if vision_text:
             content_blocks.append(f"[Gemini Visual Analysis]\n{vision_text}")
 
@@ -305,6 +357,7 @@ def load_single_image_document(image_path: Union[str, Path]) -> List[Document]:
                         "document_type": f"image_{ext}",
                         "is_vision_extracted": bool(vision_text),
                         "ocr_engine": "tesseract" if ocr_text else "none",
+                        "ocr_confidence": ocr_conf if ocr_text else 0.0,
                         "visual_analysis": bool(vision_text)
                     }
                 )
