@@ -9,13 +9,16 @@ if str(src_path) not in sys.path:
 
 import mongomock
 from core.database import mongo_db
+from api.rate_limit import limiter
 
 @pytest.fixture(autouse=True)
-def mock_mongo_for_tests():
-    """Autouse fixture to mock MongoDB Atlas connection across test executions using mongomock."""
+def mock_mongo_and_disable_rate_limits():
+    """Autouse fixture to mock MongoDB connection and disable rate limiting during tests."""
     client = mongomock.MongoClient()
     mongo_db.set_client(client)
+    limiter.enabled = False
     yield client
+    limiter.enabled = True
 
 @pytest.fixture
 def tmp_data_dir(tmp_path):
@@ -24,3 +27,4 @@ def tmp_data_dir(tmp_path):
     sample_file = d / "sample.txt"
     sample_file.write_text("Annanya Sinha studied at IIT BHU and BIT Sindri.", encoding="utf-8")
     return d
+

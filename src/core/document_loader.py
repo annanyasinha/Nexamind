@@ -11,13 +11,15 @@ from langchain_community.document_loaders import (
 from langchain_community.document_loaders.excel import UnstructuredExcelLoader
 
 from config import settings
+from core.vision_loader import extract_pdf_vision_documents, load_single_image_document
 from utils.logger import logger
 
 
-def load_all_documents(data_dir: Union[str, Path] = None) -> List[Any]:
+def load_all_documents(data_dir: Union[str, Path] = None, enable_vision: bool = None) -> List[Any]:
     """
     Load all supported files from the specified data directory and convert to LangChain document structure.
-    Supported file types: PDF, TXT, CSV, Excel (.xlsx), Word (.docx), JSON.
+    Supported file types: PDF, TXT, CSV, Excel (.xlsx), Word (.docx), JSON, PNG, JPG, JPEG, WEBP.
+    Includes Gemini Vision OCR and visual chart/diagram extraction for PDFs and images.
     """
     target_dir = Path(data_dir) if data_dir else settings.DATA_DIR
     data_path = target_dir.resolve()
@@ -27,9 +29,12 @@ def load_all_documents(data_dir: Union[str, Path] = None) -> List[Any]:
         logger.warning(f"Data directory does not exist: {data_path}")
         return []
 
+    if enable_vision is None:
+        enable_vision = getattr(settings, "ENABLE_GEMINI_VISION", True)
+
     documents = []
 
-    # PDF files
+    # PDF files (Text + Gemini Vision for embedded diagrams/graphs)
     pdf_files = list(data_path.glob("**/*.pdf"))
     if pdf_files:
         logger.info(f"Found {len(pdf_files)} PDF file(s).")
@@ -37,8 +42,26 @@ def load_all_documents(data_dir: Union[str, Path] = None) -> List[Any]:
             try:
                 loaded = PyPDFLoader(str(pdf_file)).load()
                 documents.extend(loaded)
+                if enable_vision:
+                    vision_docs = extract_pdf_vision_documents(pdf_file)
+                    documents.extend(vision_docs)
             except Exception as e:
                 logger.error(f"Failed to load PDF {pdf_file}: {e}")
+
+    # Standalone Image files (Gemini Vision)
+    image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.webp"]
+    image_files = []
+    for ext in image_extensions:
+        image_files.extend(list(data_path.glob(f"**/{ext}")))
+
+    if image_files:
+        logger.info(f"Found {len(image_files)} image file(s).")
+        for img_file in image_files:
+            try:
+                img_docs = load_single_image_document(img_file)
+                documents.extend(img_docs)
+            except Exception as e:
+                logger.error(f"Failed to load image file {img_file}: {e}")
 
     # TXT files
     txt_files = list(data_path.glob("**/*.txt"))
@@ -93,7 +116,6 @@ def load_all_documents(data_dir: Union[str, Path] = None) -> List[Any]:
                 try:
                     loaded = JSONLoader(str(json_file), jq_schema=".", text_content=False).load()
                 except Exception:
-                    # Fallback to TextLoader if jq is missing or JSON structure requires simple text loading
                     loaded = TextLoader(str(json_file)).load()
                 documents.extend(loaded)
             except Exception as e:
@@ -103,20 +125,29 @@ def load_all_documents(data_dir: Union[str, Path] = None) -> List[Any]:
     return documents
 
 
-def load_single_document(file_path: Union[str, Path]) -> List[Any]:
+def load_single_document(file_path: Union[str, Path], enable_vision: bool = None) -> List[Any]:
     """
-    Loads a single document file based on its file extension and returns LangChain document objects.
-    Supported extensions: .pdf, .txt, .csv, .xlsx, .docx, .json.
+    Loads a single document or image file based on its extension and returns LangChain document objects.
+    Supported extensions: .pdf, .txt, .csv, .xlsx, .docx, .json, .png, .jpg, .jpeg, .webp.
     """
     path = Path(file_path).resolve()
     if not path.exists() or not path.is_file():
         logger.warning(f"File does not exist for loading: {path}")
         return []
 
+    if enable_vision is None:
+        enable_vision = getattr(settings, "ENABLE_GEMINI_VISION", True)
+
     ext = path.suffix.lower()
     try:
         if ext == ".pdf":
-            return PyPDFLoader(str(path)).load()
+            docs = PyPDFLoader(str(path)).load()
+            if enable_vision:
+                v_docs = extract_pdf_vision_documents(path)
+                docs.extend(v_docs)
+            return docs
+        elif ext in [".png", ".jpg", ".jpeg", ".webp"]:
+            return load_single_image_document(path)
         elif ext in [".txt", ".md", ".log"]:
             return TextLoader(str(path)).load()
         elif ext == ".csv":
@@ -136,3 +167,4 @@ def load_single_document(file_path: Union[str, Path]) -> List[Any]:
     except Exception as e:
         logger.error(f"Failed to load single document '{path}': {e}")
         return []
+

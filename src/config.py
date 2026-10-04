@@ -60,7 +60,8 @@ class Settings:
 
     
     # Upload Security & Validation
-    ALLOWED_EXTENSIONS: set = {".pdf", ".txt", ".csv", ".docx", ".xlsx", ".json"}
+    ENABLE_GEMINI_VISION: bool = os.getenv("ENABLE_GEMINI_VISION", "true").lower() == "true"
+    ALLOWED_EXTENSIONS: set = {".pdf", ".txt", ".csv", ".docx", ".xlsx", ".json", ".png", ".jpg", ".jpeg", ".webp"}
     MAX_FILE_SIZE_MB: int = int(os.getenv("MAX_FILE_SIZE_MB", "25"))
     MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
 
