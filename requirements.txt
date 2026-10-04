@@ -16,6 +16,8 @@ faiss-cpu
 # Document parsing
 pypdf
 pymupdf
+pytesseract
+pillow
 python-docx
 docx2txt
 pandas
