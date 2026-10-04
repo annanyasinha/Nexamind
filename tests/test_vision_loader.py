@@ -97,3 +97,28 @@ def test_load_single_document_image(mock_load_img, tmp_path):
     assert docs[0].metadata["ocr_engine"] == "tesseract"
     assert docs[0].metadata["visual_analysis"] is True
     assert "Revenue growth chart" in docs[0].page_content
+
+
+@patch("core.vision_loader.analyze_image_bytes_gemini")
+@patch("core.vision_loader.extract_text_and_confidence_from_image_bytes")
+def test_enable_vision_disabled_skips_gemini(mock_ocr, mock_gemini, tmp_path, monkeypatch):
+    """Tests that when ENABLE_GEMINI_VISION is False, Gemini Vision API is never called."""
+    import config as cfg
+    monkeypatch.setattr(cfg.settings, "ENABLE_GEMINI_VISION", False)
+
+    img_file = tmp_path / "chart.png"
+    from PIL import Image
+    from io import BytesIO
+    img = Image.new("RGB", (100, 50), color="white")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    img_file.write_bytes(buf.getvalue())
+
+    mock_ocr.return_value = ("Revenue chart 2024", 95.0)
+
+    docs = load_single_image_document(img_file)
+    assert len(docs) == 1
+    mock_gemini.assert_not_called()
+    assert docs[0].metadata["is_vision_extracted"] is False
+    assert docs[0].metadata["visual_analysis"] is False
+

@@ -187,29 +187,52 @@ def extract_pdf_vision_documents(
                     page_img_bytes = pix.tobytes("png")
                     scanned_ocr_text, scanned_conf = extract_text_and_confidence_from_image_bytes(page_img_bytes)
 
-                    if len(scanned_ocr_text) >= 20 and scanned_ocr_text not in seen_contents:
-                        seen_contents.add(scanned_ocr_text)
-                        doc_content = (
-                            f"[Scanned PDF Page {page_num} OCR - Tesseract (Conf: {scanned_conf}%) | Document: {filename}]\n"
-                            f"{scanned_ocr_text}"
+                    # Evaluate if scanned page contains complex visual/chart or low OCR confidence
+                    run_scanned_vision = should_call_gemini_vision(scanned_ocr_text, ocr_confidence=scanned_conf)
+                    scanned_vision_text = None
+
+                    if run_scanned_vision and settings.ENABLE_GEMINI_VISION:
+                        if client is None:
+                            client = _get_genai_client()
+                        scanned_vision_text = analyze_image_bytes_gemini(
+                            image_bytes=page_img_bytes,
+                            mime_type="image/png",
+                            filename=filename,
+                            page_number=page_num,
+                            client=client
                         )
-                        documents.append(
-                            Document(
-                                page_content=doc_content,
-                                metadata={
-                                    "source": str(path),
-                                    "filename": filename,
-                                    "page": page_idx,
-                                    "page_number": page_num,
-                                    "document_type": "scanned_pdf_ocr",
-                                    "is_vision_extracted": False,
-                                    "ocr_engine": "tesseract",
-                                    "ocr_confidence": scanned_conf,
-                                    "visual_analysis": False
-                                }
+
+                    content_blocks = []
+                    if scanned_ocr_text:
+                        content_blocks.append(f"[Tesseract OCR Text (Conf: {scanned_conf}%)]\n{scanned_ocr_text}")
+                    if scanned_vision_text:
+                        content_blocks.append(f"[Gemini Visual Analysis]\n{scanned_vision_text}")
+
+                    if content_blocks:
+                        combo_key = f"scanned_{scanned_ocr_text}_{scanned_vision_text}"
+                        if combo_key not in seen_contents:
+                            seen_contents.add(combo_key)
+                            doc_content = (
+                                f"[Scanned PDF Page {page_num} Multimodal Analysis | Document: {filename}]\n"
+                                + "\n\n".join(content_blocks)
                             )
-                        )
-                        logger.info(f"Scanned PDF OCR extracted {len(scanned_ocr_text)} chars (Conf: {scanned_conf}%) from page {page_num} of '{filename}'")
+                            documents.append(
+                                Document(
+                                    page_content=doc_content,
+                                    metadata={
+                                        "source": str(path),
+                                        "filename": filename,
+                                        "page": page_idx,
+                                        "page_number": page_num,
+                                        "document_type": "scanned_pdf_multimodal",
+                                        "is_vision_extracted": bool(scanned_vision_text),
+                                        "ocr_engine": "tesseract" if scanned_ocr_text else "none",
+                                        "ocr_confidence": scanned_conf if scanned_ocr_text else 0.0,
+                                        "visual_analysis": bool(scanned_vision_text)
+                                    }
+                                )
+                            )
+                            logger.info(f"Scanned PDF page {page_num} processed (OCR: {bool(scanned_ocr_text)}, Vision: {bool(scanned_vision_text)})")
                 except Exception as e:
                     logger.warning(f"Scanned PDF page rendering/OCR error on page {page_num}: {e}")
 
