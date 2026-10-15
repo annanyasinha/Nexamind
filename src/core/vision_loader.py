@@ -265,7 +265,7 @@ def extract_pdf_vision_documents(
                     continue  # Skip tiny icons/bullet graphics
 
                 mime_type = get_image_mime_type(image_ext)
-
+                
                 # Step 7: Run Tesseract OCR first with confidence scoring
                 ocr_text = ""
                 ocr_conf = 0.0

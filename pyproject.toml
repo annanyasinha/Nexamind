@@ -26,7 +26,8 @@ dependencies = [
     "pydantic",
     "requests",
     "pymongo",
-    "dnspython"
+    "dnspython",
+    "mcp[cli]"
 ]
 
 [project.scripts]
@@ -52,4 +53,8 @@ testpaths = [
 ]
 pythonpath = [
     "src"
+]
+asyncio_mode = "auto"
+markers = [
+    "integration: tests that start real MCP subprocesses (deselect with '-m not integration')",
 ]

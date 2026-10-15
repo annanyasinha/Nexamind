@@ -38,6 +38,9 @@ youtube-transcript-api
 duckduckgo-search
 ddgs
 
+# Model Context Protocol (MCP) — tool interoperability layer
+mcp[cli]
+
 # Database
 pymongo
 dnspython

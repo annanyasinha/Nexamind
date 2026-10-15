@@ -1,6 +1,8 @@
 """
 NexaMind Autonomous AI Agent Orchestrator.
 Routes query intent to tools (Document RAG, YouTube RAG, GitHub RAG, Web Search) and synthesizes LLM answers.
+External tools (GitHub RAG, Web Search, YouTube RAG) are optionally invoked via the Model Context Protocol (MCP)
+for standardised tool discovery and execution.  Direct invocation is kept as a transparent fallback.
 """
 
 import json
@@ -15,6 +17,14 @@ from core.prompt import format_chat_history
 from core.tools import DocumentRAGTool, WebSearchTool, YouTubeRAGTool, GitHubRAGTool
 from core.youtube_loader import extract_youtube_id
 from utils.logger import logger
+
+# MCP integration — imported lazily so the server can still run without it.
+try:
+    from core.mcp_client import MCPClient
+    _MCP_AVAILABLE = True
+except Exception as _mcp_import_err:  # pragma: no cover
+    _MCP_AVAILABLE = False
+    logger.warning(f"MCP client not available: {_mcp_import_err}")
 
 AGENT_PLANNER_PROMPT = """You are NexaMind AI Agent Planning Router.
 Given the user query, determine which tool(s) should be called to retrieve information.
@@ -104,14 +114,35 @@ def extract_github_url(text: str) -> Optional[str]:
 class NexaMindAgent:
     """
     Autonomous Agent orchestrating Document RAG, YouTube RAG, GitHub RAG, and Web Search tools.
+
+    When *use_mcp* is True (default), external tool calls (GitHub, Web Search, YouTube)
+    are routed through an MCP client that communicates with the NexaMind MCP server.
+    The DocumentRAGTool always runs locally because it relies on in-process FAISS state.
+    If an MCP call fails, the agent transparently falls back to the direct tool call.
     """
-    def __init__(self, llm_model: str = None, vectorstore: Optional[Any] = None):
+    def __init__(
+        self,
+        llm_model: str = None,
+        vectorstore: Optional[Any] = None,
+        use_mcp: bool = True,
+    ):
         self.llm_model = llm_model or settings.DEFAULT_LLM_MODEL
         self.doc_tool = DocumentRAGTool(vectorstore=vectorstore)
         self.yt_tool = YouTubeRAGTool()
         self.github_tool = GitHubRAGTool()
         self.web_tool = WebSearchTool()
         self.client = genai.Client(api_key=settings.GOOGLE_API_KEY) if settings.GOOGLE_API_KEY else genai.Client()
+
+        # MCP layer — only activated when the SDK is importable and requested.
+        self.use_mcp: bool = use_mcp and _MCP_AVAILABLE
+        self._mcp_client: Optional["MCPClient"] = None
+        if self.use_mcp:
+            try:
+                self._mcp_client = MCPClient()
+                logger.info("NexaMindAgent: MCP client initialised — external tools will use MCP.")
+            except Exception as exc:
+                logger.warning(f"NexaMindAgent: MCP client init failed, falling back to direct calls: {exc}")
+                self.use_mcp = False
 
     def run(
         self, 
@@ -143,23 +174,30 @@ class NexaMindAgent:
             github_url = t_info.get("github_url")
 
             if t_name == "document_rag" and (not enabled_tools or "document_rag" in enabled_tools):
+                # Document RAG always runs locally — FAISS state lives in-process.
                 res = self.doc_tool.run(t_query)
                 steps.append({
                     "tool": "document_rag",
                     "input": t_query,
                     "output": res["output"],
-                    "execution_time_ms": res["execution_time_ms"]
+                    "execution_time_ms": res["execution_time_ms"],
+                    "via_mcp": False,
                 })
                 observations_blocks.append(f"=== Document RAG Observation ===\n{res['output']}")
                 all_sources.extend(res.get("sources", []))
 
             elif t_name == "youtube_rag" and (not enabled_tools or "youtube_rag" in enabled_tools):
-                res = self.yt_tool.run(t_query, url_or_id=yt_url)
+                res = self._call_tool_via_mcp(
+                    mcp_tool="search_youtube_transcript",
+                    mcp_args={"query": t_query, "video_url_or_id": yt_url or t_query},
+                    direct_fn=lambda: self.yt_tool.run(t_query, url_or_id=yt_url),
+                )
                 steps.append({
                     "tool": "youtube_rag",
                     "input": f"{t_query} (URL: {yt_url})" if yt_url else t_query,
                     "output": res["output"],
-                    "execution_time_ms": res["execution_time_ms"]
+                    "execution_time_ms": res.get("execution_time_ms", 0),
+                    "via_mcp": res.get("_via_mcp", False),
                 })
                 observations_blocks.append(f"=== YouTube RAG Observation ===\n{res['output']}")
                 all_sources.extend(res.get("sources", []))
@@ -172,30 +210,36 @@ class NexaMindAgent:
                     logger.warning("GitHub RAG selected but no repository URL found.")
                     continue
 
-                res = self.github_tool.run(
-                    t_query,
-                    repo_url=github_url
+                _repo = github_url  # capture for lambda
+                res = self._call_tool_via_mcp(
+                    mcp_tool="search_github_repository",
+                    mcp_args={"query": t_query, "repo_url": _repo},
+                    direct_fn=lambda: self.github_tool.run(t_query, repo_url=_repo),
                 )
-
                 steps.append({
                     "tool": "github_rag",
                     "input": f"{t_query} (Repository: {github_url})",
                     "output": res["output"],
-                    "execution_time_ms": res["execution_time_ms"]
+                    "execution_time_ms": res.get("execution_time_ms", 0),
+                    "via_mcp": res.get("_via_mcp", False),
                 })
-
                 observations_blocks.append(
                     f"=== GitHub RAG Observation ===\n{res['output']}"
                 )
                 all_sources.extend(res.get("sources", []))
 
             elif t_name == "web_search" and (not enabled_tools or "web_search" in enabled_tools):
-                res = self.web_tool.run(t_query)
+                res = self._call_tool_via_mcp(
+                    mcp_tool="search_web",
+                    mcp_args={"query": t_query},
+                    direct_fn=lambda: self.web_tool.run(t_query),
+                )
                 steps.append({
                     "tool": "web_search",
                     "input": t_query,
                     "output": res["output"],
-                    "execution_time_ms": res["execution_time_ms"]
+                    "execution_time_ms": res.get("execution_time_ms", 0),
+                    "via_mcp": res.get("_via_mcp", False),
                 })
                 observations_blocks.append(f"=== Web Search Observation ===\n{res['output']}")
                 all_sources.extend(res.get("sources", []))
@@ -373,6 +417,39 @@ class NexaMindAgent:
                 tools = [fallback_tool]
 
         return tools
+
+    def _call_tool_via_mcp(
+        self,
+        mcp_tool: str,
+        mcp_args: Dict[str, Any],
+        direct_fn,
+    ) -> Dict[str, Any]:
+        """
+        Invoke *mcp_tool* through the MCP client when MCP is enabled.
+        Falls back transparently to *direct_fn()* if:
+          - MCP is disabled (``use_mcp=False``), or
+          - the MCP call raises any exception.
+
+        The returned dict always follows the standard NexaMind tool-result
+        format (``output``, ``sources``, ``execution_time_ms``).  An extra
+        ``_via_mcp`` bool flag is injected to indicate which path was taken.
+        """
+        if self.use_mcp and self._mcp_client is not None:
+            try:
+                result = self._mcp_client.call_tool(mcp_tool, mcp_args)
+                result["_via_mcp"] = True
+                logger.info(f"[Agent] Tool '{mcp_tool}' executed via MCP.")
+                return result
+            except Exception as exc:
+                logger.warning(
+                    f"[Agent] MCP call for '{mcp_tool}' failed ({exc}); "
+                    "falling back to direct tool execution."
+                )
+
+        # Direct (non-MCP) execution path
+        result = direct_fn()
+        result["_via_mcp"] = False
+        return result
 
     def _generate_llm_response(self, prompt: str) -> str:
         """Sends prompt to Gemini model candidates with automatic retry and rate limit backoff."""
