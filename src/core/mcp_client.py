@@ -244,11 +244,23 @@ class MCPClient:
 
     def _run_async(self, coro):
         """
-        Run *coro* synchronously, respecting an optional timeout.
+        Run *coro* synchronously, enforcing ``self.timeout_seconds`` in both
+        execution paths.
 
-        Avoids the 'This event loop is already running' error (common in
-        Jupyter / FastAPI contexts) by creating a new loop in a thread
-        when a loop is already active.
+        Two situations arise:
+
+        1. **No running event loop** (typical when called from a plain sync
+           context, the CLI, or a pytest test):
+           ``asyncio.run()`` is used directly.  ``asyncio.wait_for`` wraps the
+           coroutine so the timeout is always respected.
+
+        2. **Running event loop already exists** (FastAPI async endpoint,
+           Jupyter notebook):
+           A new loop is started in a fresh thread to avoid the
+           "This event loop is already running" error.  The thread-level
+           ``future.result(timeout=…)`` provides the outer wall-clock guard;
+           ``asyncio.wait_for`` inside the thread provides the async-level
+           cancellation signal.
         """
         import concurrent.futures
 
@@ -258,14 +270,22 @@ class MCPClient:
             loop = None
 
         if loop and loop.is_running():
-            # We are inside a running event loop (e.g. FastAPI async endpoint).
-            # Run the coroutine in a separate thread to avoid deadlock.
+            # Running inside an event loop (e.g. FastAPI async endpoint).
+            # Offload to a thread so we don't deadlock.
+            async def _with_timeout():
+                return await asyncio.wait_for(coro, timeout=self.timeout_seconds)
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, coro)
-                return future.result(timeout=self.timeout_seconds)
+                future = pool.submit(asyncio.run, _with_timeout())
+                # The outer timeout adds a wall-clock guard on top of the
+                # async cancellation; both must match for clean teardown.
+                return future.result(timeout=self.timeout_seconds + 5)
         else:
-            # No running loop — safe to use asyncio.run() directly.
-            return asyncio.run(coro)
+            # No running loop — use asyncio.run() with an async timeout.
+            async def _with_timeout():
+                return await asyncio.wait_for(coro, timeout=self.timeout_seconds)
+
+            return asyncio.run(_with_timeout())
 
 
 # ---------------------------------------------------------------------------

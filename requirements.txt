@@ -39,7 +39,10 @@ duckduckgo-search
 ddgs
 
 # Model Context Protocol (MCP) — tool interoperability layer
-mcp[cli]
+# Pinned to v2.x: the server uses mcp.server.mcpserver.MCPServer and the client
+# uses mcp.ClientSession / mcp.StdioServerParameters, both stable in this range.
+# Bump to >=3,<4 only after reviewing the v3 migration guide.
+mcp[cli]>=2.3,<3
 
 # Database
 pymongo

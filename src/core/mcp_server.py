@@ -18,16 +18,18 @@ _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from core.tools import GitHubRAGTool, WebSearchTool, YouTubeRAGTool
 from utils.logger import logger
 
 # ---------------------------------------------------------------------------
 # Server instantiation
+# MCPServer is the v2 successor to FastMCP.  The .tool() decorator and
+# .run(transport="stdio") interface are identical to the v1 API.
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("NexaMind MCP Server")
+mcp = MCPServer("NexaMind MCP Server")
 
 # Instantiate tools once at module level so they are reused across requests.
 # Each tool is self-contained and thread-safe for read operations.

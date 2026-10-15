@@ -7,7 +7,7 @@ name = "nexamind"
 version = "1.0.0"
 description = "NexaMind - High-performance RAG Intelligence Platform"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "langchain",
     "langchain-core",
@@ -27,7 +27,9 @@ dependencies = [
     "requests",
     "pymongo",
     "dnspython",
-    "mcp[cli]"
+    # Pinned to v2.x — matches mcp.server.mcpserver.MCPServer API used in
+    # mcp_server.py. Bump to >=3,<4 only after reviewing the v3 migration guide.
+    "mcp[cli]>=2.3,<3"
 ]
 
 [project.scripts]
