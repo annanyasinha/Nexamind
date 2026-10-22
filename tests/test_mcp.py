@@ -203,6 +203,57 @@ class TestMCPClientUnit:
         finally:
             _loop.call_soon_threadsafe(_loop.stop)
 
+    async def test_mcp_tool_error_response(self):
+        """_async_call_tool() must raise RuntimeError when the MCP result
+        carries is_error=True, passing the server's error text through."""
+        from core.mcp_client import MCPClient
+
+        client = MCPClient()
+
+        # Build a fake MCP result that signals an error.
+        error_result = MagicMock()
+        error_result.is_error = True
+        error_result.content = [MagicMock(text="GitHub repository not found")]
+
+        # Inject a mock session so no subprocess is started.
+        client._session = AsyncMock()
+        client._session.call_tool.return_value = error_result
+
+        with pytest.raises(RuntimeError, match="GitHub repository not found"):
+            await client._async_call_tool(
+                "search_github_repository",
+                {"query": "test", "repo_url": "invalid"},
+            )
+
+    async def test_mcp_structured_response(self):
+        """_async_call_tool() must return structured_content directly when the
+        SDK provides it, skipping the JSON text-parsing fallback."""
+        from core.mcp_client import MCPClient
+
+        client = MCPClient()
+
+        expected = {
+            "tool": "web_search",
+            "output": "Search successful",
+            "sources": [],
+        }
+
+        # Build a fake MCP result with structured_content populated.
+        structured_result = MagicMock()
+        structured_result.is_error = False
+        structured_result.structured_content = expected
+
+        # Inject a mock session so no subprocess is started.
+        client._session = AsyncMock()
+        client._session.call_tool.return_value = structured_result
+
+        actual = await client._async_call_tool(
+            "search_web",
+            {"query": "What is MCP?"},
+        )
+
+        assert actual == expected
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: NexaMindAgent MCP integration
