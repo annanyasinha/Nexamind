@@ -23,15 +23,23 @@ from utils.logger import logger
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initializes RAG search engine and AI Agent singletons during startup."""
+    """Manage application startup and shutdown."""
     logger.info(
         f"Starting {settings.PROJECT_NAME} v{settings.VERSION}..."
     )
 
     get_rag_search()
-    get_nexamind_agent()
+    agent = get_nexamind_agent()
 
-    yield
+    try:
+        yield
+    finally:
+        # Close the persistent MCP session so the server subprocess and
+        # background thread are cleaned up rather than abandoned.
+        mcp_client = getattr(agent, "_mcp_client", None)
+        if mcp_client is not None:
+            logger.info("Shutting down NexaMind MCP client...")
+            mcp_client.close()
 
 
 app = FastAPI(

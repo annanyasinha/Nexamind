@@ -302,6 +302,16 @@ class MCPClient:
         except Exception as exc:
             self._startup_error = exc
             logger.error(f"[MCPClient] Session startup failed: {exc}")
+            # Close any contexts that were partially opened (e.g. the stdio
+            # transport was entered but session.initialize() failed).  Without
+            # this the subprocess and streams are left running in the background.
+            if stack is not None:
+                try:
+                    await stack.aclose()
+                except Exception:
+                    pass  # best-effort; don't mask the original error
+            self._session = None
+            self._exit_stack = None
         finally:
             # Always unblock _ensure_started(), even on failure.
             self._ready.set()
