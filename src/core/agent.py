@@ -27,6 +27,17 @@ except Exception as _mcp_import_err:  # pragma: no cover
     logger.warning(f"MCP client not available: {_mcp_import_err}")
 
 # ---------------------------------------------------------------------------
+# Maps MCP server tool names → agent execution branch names.
+# The LLM planner always works with agent-side names; this mapping is used
+# solely inside _build_tools_section() to translate discovered MCP metadata.
+# ---------------------------------------------------------------------------
+MCP_TO_AGENT_TOOL: Dict[str, str] = {
+    "search_github_repository": "github_rag",
+    "search_web":               "web_search",
+    "search_youtube_transcript": "youtube_rag",
+}
+
+# ---------------------------------------------------------------------------
 # Fallback tool descriptions used when MCP discovery is unavailable.
 # ---------------------------------------------------------------------------
 _HARDCODED_TOOLS_SECTION = """\
@@ -323,8 +334,12 @@ class NexaMindAgent:
             return _HARDCODED_TOOLS_SECTION
 
         mcp_entries = [
-            f"{i + 2}. {name}:\n   {meta.get('description', '').strip()}"
+            (
+                f"{i + 2}. {MCP_TO_AGENT_TOOL[name]}:\n"
+                f"   {meta.get('description', '').strip()}"
+            )
             for i, (name, meta) in enumerate(self._mcp_tools.items())
+            if name in MCP_TO_AGENT_TOOL  # skip any unrecognised MCP tools
         ]
         return "\n\n".join([doc_entry] + mcp_entries)
 
@@ -351,11 +366,11 @@ class NexaMindAgent:
             }]
 
         # 1. Try LLM Planning Router for dynamic multi-tool routing
-        # Build the set of valid tool names for post-planning validation.
-        # document_rag is always valid (local); MCP tools come from the registry.
+        # _valid_tools contains only agent-side names that match execution
+        # branches below.  MCP server names (search_web etc.) are translated
+        # to agent names inside _build_tools_section() before the LLM ever
+        # sees them, so we do not need to add raw MCP keys here.
         _valid_tools: set = {"document_rag", "youtube_rag", "github_rag", "web_search"}
-        if self._mcp_tools:
-            _valid_tools.update(self._mcp_tools.keys())
 
         try:
             tools_section = self._build_tools_section()
