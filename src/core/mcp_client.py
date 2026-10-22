@@ -86,7 +86,7 @@ async def _async_list_tools() -> List[Dict[str, Any]]:
                 tools_info.append({
                     "name": tool.name,
                     "description": tool.description,
-                    "input_schema": tool.inputSchema,
+                    "input_schema": tool.input_schema,
                 })
 
             return tools_info
@@ -112,10 +112,35 @@ async def _async_call_tool(
 
             mcp_result = await session.call_tool(tool_name, arguments=arguments)
 
-            # MCP returns a list of content items.  We collect all text items
-            # and re-assemble a single string, then parse it if it looks like JSON.
             import json
 
+            # ------------------------------------------------------------------
+            # 1. Propagate MCP-level tool errors so the agent's fallback fires.
+            #    session.call_tool() does NOT raise for tool-side failures;
+            #    instead it sets is_error=True on the result object.
+            # ------------------------------------------------------------------
+            if mcp_result.is_error:
+                error_text = "\n".join(
+                    item.text
+                    for item in mcp_result.content
+                    if getattr(item, "text", None)
+                )
+                raise RuntimeError(
+                    error_text or f"MCP tool '{tool_name}' failed"
+                )
+
+            # ------------------------------------------------------------------
+            # 2. Prefer structured_content when the SDK provides it (SDK v2+).
+            #    This avoids an unnecessary JSON round-trip.
+            # ------------------------------------------------------------------
+            structured = getattr(mcp_result, "structured_content", None)
+            if isinstance(structured, dict):
+                return structured
+
+            # ------------------------------------------------------------------
+            # 3. Fallback: collect text content items and parse as JSON.
+            #    The MCP server serialises its returned dict as a JSON text item.
+            # ------------------------------------------------------------------
             raw_parts: List[str] = []
             for item in mcp_result.content:
                 if hasattr(item, "text") and item.text:
@@ -123,11 +148,10 @@ async def _async_call_tool(
 
             combined = "\n".join(raw_parts)
 
-            # The FastMCP server serialises the returned dict as JSON text.
             try:
                 return json.loads(combined)
             except (json.JSONDecodeError, ValueError):
-                # Fallback: return as plain-text output
+                # Last resort: wrap raw text so the caller always gets a dict.
                 return {
                     "tool": tool_name,
                     "output": combined,

@@ -26,27 +26,35 @@ except Exception as _mcp_import_err:  # pragma: no cover
     _MCP_AVAILABLE = False
     logger.warning(f"MCP client not available: {_mcp_import_err}")
 
+# ---------------------------------------------------------------------------
+# Fallback tool descriptions used when MCP discovery is unavailable.
+# ---------------------------------------------------------------------------
+_HARDCODED_TOOLS_SECTION = """\
+1. document_rag:
+   Use ONLY when the query specifically asks about uploaded files,
+   PDFs, local documents, personal resume/CV, or internal dataset.
+
+2. youtube_rag:
+   Use when a YouTube link or video ID is present,
+   or when the user asks about video transcripts or spoken video content.
+
+3. github_rag:
+   Use when a GitHub repository URL is present or when the user
+   asks questions about source code contained in a GitHub repository.
+
+4. web_search:
+   Use when the query asks about real-world topics, current events,
+   public news, general concepts, weather, external internet
+   information, or other live/current topics."""
+
+# {tools_section} is populated at call time (dynamic) or falls back to
+# _HARDCODED_TOOLS_SECTION when MCP tool discovery was unavailable.
 AGENT_PLANNER_PROMPT = """You are NexaMind AI Agent Planning Router.
 Given the user query, determine which tool(s) should be called to retrieve information.
 
 Available Tools:
 
-1. document_rag:
-Use ONLY when the query specifically asks about uploaded files,
-PDFs, local documents, personal resume/CV, or internal dataset.
-
-2. youtube_rag:
-Use when a YouTube link or video ID is present,
-or when the user asks about video transcripts or spoken video content.
-
-3. github_rag:
-Use when a GitHub repository URL is present or when the user
-asks questions about source code contained in a GitHub repository.
-
-4. web_search:
-Use when the query asks about real-world topics, current events,
-public news, general concepts, weather, external internet
-information, or other live/current topics.
+{tools_section}
 
 Instructions:
 
@@ -66,7 +74,7 @@ Respond in strictly valid JSON format:
   "thought": "<short reason for tool selection>",
   "tools": [
     {{
-      "name": "document_rag" | "youtube_rag" | "github_rag" | "web_search",
+      "name": "<tool name from the list above>",
       "query": "<search query>",
       "youtube_url": "<YouTube URL or ID, otherwise empty>",
       "github_url": "<GitHub repository URL, otherwise empty>"
@@ -136,10 +144,14 @@ class NexaMindAgent:
         # MCP layer — only activated when the SDK is importable and requested.
         self.use_mcp: bool = use_mcp and _MCP_AVAILABLE
         self._mcp_client: Optional["MCPClient"] = None
+        # Registry of MCP-discovered tools: {tool_name: {name, description, input_schema}}
+        # Populated once at startup; empty dict means discovery was unavailable.
+        self._mcp_tools: Dict[str, Dict[str, Any]] = {}
         if self.use_mcp:
             try:
                 self._mcp_client = MCPClient()
                 logger.info("NexaMindAgent: MCP client initialised — external tools will use MCP.")
+                self._discover_mcp_tools()
             except Exception as exc:
                 logger.warning(f"NexaMindAgent: MCP client init failed, falling back to direct calls: {exc}")
                 self.use_mcp = False
@@ -274,6 +286,50 @@ class NexaMindAgent:
             "execution_time_ms": total_duration_ms
         }
 
+    def _discover_mcp_tools(self) -> None:
+        """
+        Populate ``self._mcp_tools`` by calling ``list_tools()`` on the MCP
+        server once at agent startup.  Failures are non-fatal — the planner
+        falls back to the hardcoded tool descriptions.
+        """
+        try:
+            discovered = self._mcp_client.list_tools()  # type: ignore[union-attr]
+            self._mcp_tools = {t["name"]: t for t in discovered}
+            logger.info(
+                f"[Agent] MCP tool discovery succeeded — "
+                f"registered tools: {list(self._mcp_tools.keys())}"
+            )
+        except Exception as exc:
+            logger.warning(
+                f"[Agent] MCP tool discovery failed (planner will use static descriptions): {exc}"
+            )
+
+    def _build_tools_section(self) -> str:
+        """
+        Build the tools section for the LLM planner prompt.
+
+        ``document_rag`` is always prepended because it runs locally and is
+        never registered on the MCP server.  MCP-discovered tools follow;
+        if discovery was unavailable the hardcoded fallback is used instead.
+        """
+        doc_entry = (
+            "1. document_rag:\n"
+            "   Use ONLY when the query specifically asks about uploaded files,\n"
+            "   PDFs, local documents, personal resume/CV, or internal dataset."
+        )
+
+        if not self._mcp_tools:
+            # Discovery unavailable — return the full static fallback.
+            return _HARDCODED_TOOLS_SECTION
+
+        mcp_entries = [
+            f"{i + 2}. {name}:\n   {meta.get('description', '').strip()}"
+            for i, (name, meta) in enumerate(self._mcp_tools.items())
+        ]
+        return "\n\n".join([doc_entry] + mcp_entries)
+
+    # ------------------------------------------------------------------
+
     def _plan_tool_calls(
         self,
         query: str,
@@ -295,8 +351,18 @@ class NexaMindAgent:
             }]
 
         # 1. Try LLM Planning Router for dynamic multi-tool routing
+        # Build the set of valid tool names for post-planning validation.
+        # document_rag is always valid (local); MCP tools come from the registry.
+        _valid_tools: set = {"document_rag", "youtube_rag", "github_rag", "web_search"}
+        if self._mcp_tools:
+            _valid_tools.update(self._mcp_tools.keys())
+
         try:
-            planner_prompt = AGENT_PLANNER_PROMPT.format(query=query)
+            tools_section = self._build_tools_section()
+            planner_prompt = AGENT_PLANNER_PROMPT.format(
+                tools_section=tools_section,
+                query=query,
+            )
 
             for model in settings.LLM_MODEL_CANDIDATES:
                 try:
@@ -324,8 +390,16 @@ class NexaMindAgent:
                         ):
                             for t in parsed["tools"]:
                                 if isinstance(t, dict) and "name" in t:
+                                    t_name = t["name"]
+                                    # Validate against the discovered registry.
+                                    if t_name not in _valid_tools:
+                                        logger.warning(
+                                            f"[Agent] LLM planner returned unknown "
+                                            f"tool '{t_name}' — skipping."
+                                        )
+                                        continue
                                     tools.append({
-                                        "name": t["name"],
+                                        "name": t_name,
                                         "query": t.get("query", query),
                                         "youtube_url": t.get("youtube_url", ""),
                                         "github_url": t.get("github_url", "")
