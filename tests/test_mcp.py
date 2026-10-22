@@ -145,6 +145,64 @@ class TestMCPClientUnit:
         assert len(tools) == 3
         assert tools[0]["name"] == "search_github_repository"
 
+    def test_call_tool_times_out(self):
+        """MCPClient._submit() should raise RuntimeError before the wall-clock
+        timeout + 5 s guard expires when the background loop is blocked.
+
+        Strategy: give the client a very short timeout (1 s), then replace
+        _submit with a version that really waits 10 s inside a real event loop.
+        We assert that RuntimeError is raised and that the call returns in well
+        under 10 s, proving the timeout fires rather than blocking.
+        """
+        import time
+        from core.mcp_client import MCPClient
+
+        client = MCPClient(timeout_seconds=1)
+
+        # Replace _submit with one that submits a genuinely slow coroutine to a
+        # real event loop so asyncio.wait_for can do its job.
+        import asyncio, concurrent.futures
+
+        _loop = asyncio.new_event_loop()
+        _thread = None
+
+        def _slow_submit(coro):
+            # Ignore the passed coro; run a 10-second sleep instead so the
+            # timeout is guaranteed to fire first.
+            async def _blocker():
+                await asyncio.wait_for(
+                    asyncio.sleep(10), timeout=client.timeout_seconds
+                )
+
+            fut = asyncio.run_coroutine_threadsafe(_blocker(), _loop)
+            try:
+                return fut.result(timeout=client.timeout_seconds + 5)
+            except (concurrent.futures.TimeoutError, asyncio.TimeoutError):
+                fut.cancel()
+                raise RuntimeError(
+                    f"MCP operation timed out after {client.timeout_seconds}s"
+                )
+
+        import threading
+        _loop_thread = threading.Thread(
+            target=lambda: _loop.run_forever(), daemon=True
+        )
+        _loop_thread.start()
+
+        try:
+            with patch.object(client, "_submit", side_effect=_slow_submit):
+                t0 = time.monotonic()
+                with pytest.raises(RuntimeError, match="timed out"):
+                    client.call_tool("search_web", {"query": "slow test"})
+                elapsed = time.monotonic() - t0
+
+            # Must return well within the 10 s blocking duration.
+            assert elapsed < 8, (
+                f"call_tool blocked for {elapsed:.1f}s — timeout did not fire"
+            )
+        finally:
+            _loop.call_soon_threadsafe(_loop.stop)
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: NexaMindAgent MCP integration

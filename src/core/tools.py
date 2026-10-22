@@ -155,6 +155,15 @@ class YouTubeRAGTool:
         except Exception as e:
             logger.error(f"YouTube RAG Tool execution error: {e}")
             output_text = f"YouTube RAG Tool error: {e!s}"
+            duration_ms = round((time.time() - start_time) * 1000, 2)
+            return {
+                "tool": self.name,
+                "query": query,
+                "output": output_text,
+                "sources": [],
+                "execution_time_ms": duration_ms,
+                "success": False,
+            }
 
         duration_ms = round((time.time() - start_time) * 1000, 2)
         return {
@@ -162,7 +171,8 @@ class YouTubeRAGTool:
             "query": query,
             "output": output_text,
             "sources": sources,
-            "execution_time_ms": duration_ms
+            "execution_time_ms": duration_ms,
+            "success": True,
         }
 
 class GitHubRAGTool:
@@ -311,6 +321,21 @@ class GitHubRAGTool:
                 f"GitHub RAG Tool error: {e!s}"
             )
 
+            duration_ms = round(
+                (time.time() - start_time) * 1000,
+                2
+            )
+
+            return {
+                "tool": self.name,
+                "query": query,
+                "repo_url": repo_url,
+                "output": output_text,
+                "sources": [],
+                "execution_time_ms": duration_ms,
+                "success": False,
+            }
+
         duration_ms = round(
             (time.time() - start_time) * 1000,
             2
@@ -322,7 +347,8 @@ class GitHubRAGTool:
             "repo_url": repo_url,
             "output": output_text,
             "sources": sources,
-            "execution_time_ms": duration_ms
+            "execution_time_ms": duration_ms,
+            "success": True,
         }
 class WebSearchTool:
     """

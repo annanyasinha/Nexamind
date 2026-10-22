@@ -70,6 +70,11 @@ def search_github_repository(
 
     result = _github_tool.run(query=query, repo_url=repo_url)
 
+    if result.get("success") is False:
+        raise RuntimeError(
+            result.get("output", "GitHub RAG tool execution failed")
+        )
+
     return {
         "tool": "github_rag",
         "query": query,
@@ -146,6 +151,11 @@ def search_youtube_transcript(
     )
 
     result = _youtube_tool.run(query=query, url_or_id=video_url_or_id)
+
+    if result.get("success") is False:
+        raise RuntimeError(
+            result.get("output", "YouTube RAG tool execution failed")
+        )
 
     return {
         "tool": "youtube_rag",
