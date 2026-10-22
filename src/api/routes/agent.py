@@ -51,6 +51,8 @@ def execute_agent_query(request: Request,req: AgentQueryRequest):
             execution_time_ms=res["execution_time_ms"]
         )
 
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Error during agent execution")
         raise HTTPException(

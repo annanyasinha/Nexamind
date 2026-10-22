@@ -90,7 +90,11 @@ def extract_github_repo(url: str) -> Tuple[str, str]:
 
 
 def get_github_headers() -> Dict[str, str]:
+    """Return GitHub API request headers.
 
+    The Authorization header is added only when GITHUB_TOKEN is set.
+    The token value is never logged.
+    """
     headers = {
         "Accept": "application/vnd.github+json"
     }
@@ -126,6 +130,12 @@ def get_repository_info(repo_url: str) -> Dict[str, Any]:
     response.raise_for_status()
 
     data = response.json()
+
+    if data.get("private"):
+        raise PermissionError(
+            f"Access to private repository '{data.get('full_name', repo_url)}' "
+            "is not permitted. NexaMind supports public repositories only."
+        )
 
     return {
         "owner": owner,
