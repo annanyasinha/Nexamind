@@ -137,7 +137,7 @@ class MCPClient:
         -------
         list of dict, each with keys: name, description, input_schema.
         """
-        return self._submit(self._async_list_tools())
+        return self._run_async(self._async_list_tools())
 
     # ------------------------------------------------------------------
     # Tool invocation
@@ -172,7 +172,7 @@ class MCPClient:
         logger.info(f"[MCPClient] Calling MCP tool '{tool_name}' | args={arguments}")
 
         try:
-            result = self._submit(self._async_call_tool(tool_name, arguments))
+            result = self._run_async(self._async_call_tool(tool_name, arguments))
             logger.info(f"[MCPClient] Tool '{tool_name}' returned successfully.")
             return result
         except Exception as exc:
