@@ -51,6 +51,9 @@ def execute_agent_query(request: Request,req: AgentQueryRequest):
             execution_time_ms=res["execution_time_ms"]
         )
 
-    except Exception as e:
-        logger.error(f"Error during agent execution: {e}")
-        raise HTTPException(status_code=500, detail=f"Agent execution error: {e!s}")
+    except Exception:
+        logger.exception("Error during agent execution")
+        raise HTTPException(
+            status_code=500,
+            detail="An internal error occurred while processing your request."
+        )
